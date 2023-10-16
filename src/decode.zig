@@ -58,8 +58,9 @@ fn decode(
 		for (0..@intCast(frame.nb_samples)) |i|
 			for (0..@intCast(ctx.ch_layout.nb_channels)) |ch|
 			{
-				const data = @as(*const [data_size]c_char, frame.data[ch] + data_size*i);
-				try outfile.write(data);
+				const data_idx = ch + data_size*i;
+				const data: []u8 = frame.data[ch][data_idx..data_idx+data_size];
+				_ = try outfile.write(data);
 			};
 	}
 
