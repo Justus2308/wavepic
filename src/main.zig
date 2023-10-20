@@ -17,10 +17,6 @@ pub fn main() !void {
 }
 
 
-test "Opps!" {
-    try std.testing.expect(false);
-}
-
 test "TESTING" {
     _ = @import("decode.zig");
 }

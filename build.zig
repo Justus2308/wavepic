@@ -3,7 +3,8 @@ const std = @import("std");
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
 // runner.
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) void
+{
 	// Standard target options allows the person running `zig build` to choose
 	// what target to build for. Here we do not override the defaults, which
 	// means any target is allowed, and the default is native. Other options
@@ -15,6 +16,21 @@ pub fn build(b: *std.Build) void {
 	// set a preferred release mode, allowing the user to decide how to optimize.
 	const optimize = b.standardOptimizeOption(.{});
 
+
+	// dependencies
+
+	const ffmpeg_dep = b.dependency("ffmpeg", .{
+		.target = target,
+		.optimize = optimize,
+	});
+
+	const vkzig_dep = b.dependency("vulkan_zig", .{
+		.registry = @as([]const u8, b.pathFromRoot("./vk.xml")),
+	});
+
+
+	// main executable
+
 	const exe = b.addExecutable(.{
 		.name = "wavepic",
 		// In this case the main source file is merely a path, however, in more
@@ -25,37 +41,20 @@ pub fn build(b: *std.Build) void {
 	});
 
 
-	const c_path = std.os.getenv("CPATH");
-	if (c_path) |p|
-		exe.addIncludePath(.{ .path = p});
+	// link C libs
 
-	const c_include_path = std.os.getenv("C_INCLUDE_PATH");
-	if (c_include_path) |p|
-		exe.addIncludePath(.{ .path = p});
-
-
-	const lib_path = std.os.getenv("DYLD_LIBRARY_PATH");
-	if (lib_path) |p|
-		exe.addLibraryPath(.{ .path = p});
-
-	const fallback_lib_path = std.os.getenv("DYLD_FALLBACK_LIBRARY_PATH");
-	if (fallback_lib_path) |p|
-		exe.addLibraryPath(.{ .path = p});
-
-	const fallback_framework_path = std.os.getenv("DYLD_FALLBACK_FRAMEWORK_PATH");
-	if (fallback_framework_path) |p|
-		exe.addLibraryPath(.{ .path = p});
-
-
+	exe.linkLibrary(ffmpeg_dep.artifact("ffmpeg"));
 	exe.linkLibC();
-	exe.linkSystemLibrary("m");
 
-	exe.linkSystemLibraryName("avutil");
-	exe.linkSystemLibraryName("avcodec");
-	exe.linkSystemLibraryName("avformat");
-	exe.linkSystemLibraryName("swresample");
+	// exe.addIncludePath(.{ .path = "." });
 
-	exe.verbose_link = true;
+	exe.setVerboseCC(true);
+	exe.setVerboseLink(true);
+
+	// Vulkan bindings
+
+	const vkzig_bindings = vkzig_dep.module("vulkan-zig");
+	exe.addModule("vulkan-zig", vkzig_bindings);
 
 	// This declares intent for the executable to be installed into the
 	// standard location when the user invokes the "install" step (the default
@@ -92,6 +91,33 @@ pub fn build(b: *std.Build) void {
 		.target = target,
 		.optimize = optimize,
 	});
+
+	// link to already installed ffmpeg libs instead
+	// of fetching it separately as a dependency to
+	// speed up compilation for testing
+	// add later as compilation option?
+	// ***
+	const lib_path = std.os.getenv("DYLD_LIBRARY_PATH");
+	if (lib_path) |p|
+		unit_tests.addLibraryPath(.{ .path = p});
+
+	const fallback_lib_path = std.os.getenv("DYLD_FALLBACK_LIBRARY_PATH");
+	if (fallback_lib_path) |p|
+		unit_tests.addLibraryPath(.{ .path = p});
+
+	const fallback_framework_path = std.os.getenv("DYLD_FALLBACK_FRAMEWORK_PATH");
+	if (fallback_framework_path) |p|
+		unit_tests.addLibraryPath(.{ .path = p});
+
+
+	unit_tests.linkSystemLibraryName("avutil");
+	unit_tests.linkSystemLibraryName("avcodec");
+	unit_tests.linkSystemLibraryName("avformat");
+	unit_tests.linkSystemLibraryName("swresample");
+	// ***
+
+	// unit_tests.linkLibrary(ffmpeg_dep.artifact("ffmpeg"));
+	unit_tests.linkLibC();
 
 	const run_unit_tests = b.addRunArtifact(unit_tests);
 
