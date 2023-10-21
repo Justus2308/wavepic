@@ -97,23 +97,7 @@ pub fn build(b: *std.Build) void
 	// speed up compilation for testing
 	// add later as compilation option?
 	// ***
-	const lib_path = std.os.getenv("DYLD_LIBRARY_PATH");
-	if (lib_path) |p|
-		unit_tests.addLibraryPath(.{ .path = p});
-
-	const fallback_lib_path = std.os.getenv("DYLD_FALLBACK_LIBRARY_PATH");
-	if (fallback_lib_path) |p|
-		unit_tests.addLibraryPath(.{ .path = p});
-
-	const fallback_framework_path = std.os.getenv("DYLD_FALLBACK_FRAMEWORK_PATH");
-	if (fallback_framework_path) |p|
-		unit_tests.addLibraryPath(.{ .path = p});
-
-
-	unit_tests.linkSystemLibraryName("avutil");
-	unit_tests.linkSystemLibraryName("avcodec");
-	unit_tests.linkSystemLibraryName("avformat");
-	unit_tests.linkSystemLibraryName("swresample");
+	dynLinkFFmpeg(unit_tests);
 	// ***
 
 	// unit_tests.linkLibrary(ffmpeg_dep.artifact("ffmpeg"));
@@ -126,4 +110,27 @@ pub fn build(b: *std.Build) void
 	// running the unit tests.
 	const test_step = b.step("test", "Run unit tests");
 	test_step.dependOn(&run_unit_tests.step);
+}
+
+// add as option to main compile step later
+fn dynLinkFFmpeg(exe: *std.Build.Step.Compile) void
+{
+	const lib_path = std.os.getenv("DYLD_LIBRARY_PATH");
+	if (lib_path) |p|
+		exe.addLibraryPath(.{ .path = p});
+
+	const fallback_lib_path = std.os.getenv("DYLD_FALLBACK_LIBRARY_PATH");
+	if (fallback_lib_path) |p|
+		exe.addLibraryPath(.{ .path = p});
+
+	const fallback_framework_path = std.os.getenv("DYLD_FALLBACK_FRAMEWORK_PATH");
+	if (fallback_framework_path) |p|
+		exe.addLibraryPath(.{ .path = p});
+
+	exe.linkSystemLibrary2("avcodec", .{ .needed = true });
+	exe.linkSystemLibrary2("avformat", .{ .needed = true });
+	exe.linkSystemLibrary2("avutil", .{ .needed = true });
+	exe.linkSystemLibrary2("swresample", .{ .needed = true });
+
+	// TODO: check versions of libav
 }
