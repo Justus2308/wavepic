@@ -13,6 +13,7 @@ pub const FFmpegError = error {
 	NoChannels,
 	NoBitRate,
 	NoSampleRate,
+	NoLayout,
 
 	ConversionToPCMFailed,
 };
@@ -44,14 +45,15 @@ pub const ChannelLayout = enum
 	unknown,
 
 	other,
-	noaudio,
+	no_audio,
 };
 pub const ChannelInfo = struct
 {
 	id: u32,
+	bit_rate: u32,
+	sample_rate: u32,
 	layout: ChannelLayout,
 };
-
 pub fn ffprobeChannelOverview(allocator: Allocator, file_path: []const u8) ![]ChannelInfo
 {
 	const argv: []const []const u8 =
@@ -61,11 +63,11 @@ pub fn ffprobeChannelOverview(allocator: Allocator, file_path: []const u8) ![]Ch
 		"-loglevel", "error",
 		"-v", "0",
 		"-select_streams", "a",
-		"-show_entries", "stream=index,channel_layout",
+		"-show_entries", "stream=index,sample_rate,channel_layout,bit_rate",
 		"-of", "csv=p=0",
 	};
 
-	const out = try util.exec(allocator, argv, .{});
+	const out = try util.exec(allocator, argv, .{ .stderr = .fail });
 	defer if (out) |o| allocator.free(o);
 
 	const ch_info_chars = out orelse return FFmpegError.NoChannels;
@@ -73,20 +75,28 @@ pub fn ffprobeChannelOverview(allocator: Allocator, file_path: []const u8) ![]Ch
 	var ch_info_list = std.ArrayList(ChannelInfo).init(allocator);
 	errdefer ch_info_list.deinit();
 
-	var tokenizer = std.mem.tokenizeScalar(u8, ch_info_chars, '\n');
-	while (tokenizer.next()) |t|
+	var lf_tknzr = std.mem.tokenizeScalar(u8, ch_info_chars, '\n');
+	while (lf_tknzr.next()) |line|
 	{
-		const comma_idx = std.mem.indexOfScalar(u8, t, ',');
+		var comma_tknzr = std.mem.tokenizeScalar(u8, line, ',');
 
-		const ch_info: ChannelInfo = if (comma_idx) |i|
-		.{
-			.id = try std.fmt.parseInt(u32, t[0..i], 10),
-			.layout = std.meta.stringToEnum(ChannelLayout, t[i+1..t.len]) orelse .other,
-		}
-		else
-		.{
-			.id = try std.fmt.parseInt(u32, t[0..t.len-1], 10),
-			.layout = .noaudio,
+		const ch_info = ChannelInfo
+		{
+			.id = if (comma_tknzr.next()) |csv|
+				try std.fmt.parseInt(u32, csv, 10)
+				else return FFmpegError.NoChannels,
+
+			.sample_rate = if (comma_tknzr.next()) |csv|
+				try std.fmt.parseInt(u32, csv, 10)
+				else return FFmpegError.NoSampleRate,
+
+			.layout = if (comma_tknzr.next()) |csv|
+				std.meta.stringToEnum(ChannelLayout, csv) orelse .other
+				else return FFmpegError.NoLayout,
+
+			.bit_rate = if (comma_tknzr.next()) |csv|
+				try std.fmt.parseInt(u32, csv, 10)
+				else return FFmpegError.NoBitRate,
 		};
 
 		try ch_info_list.append(ch_info);
@@ -114,126 +124,48 @@ pub const AudioStream = union(enum)
 		};
 	}
 };
-
-pub const ChannelSpecs = struct
-{
-	layout: ChannelLayout,
-	bit_rate: u32,
-	sample_rate: u32,
-	len: ?usize,
-};
-
 pub const AudioSpecs = struct
 {
-	allocator: Allocator,
-
 	stream: AudioStream,
-	channels: []ChannelSpecs,
-	max_len: ?usize,
+	channel: ChannelInfo,
+	len: ?f64,
 
 	const Self = @This();
 
-	pub fn destroy(self: *Self) void
+	/// no need to free anything, retval is pass by value
+	pub fn init(allocator: Allocator, file_path: []const u8, channel: ChannelInfo) !Self
 	{
-		for (0..self.channels.len) |i|
+		var arena = std.heap.ArenaAllocator.init(allocator);
+		defer arena.deinit();
+
+		const arena_alloc = arena.allocator();
+
+		const stream_n_lit = try std.fmt.allocPrint(arena_alloc, "{d}", .{channel.id});
+		const stream_lit = try std.mem.concat(arena_alloc, u8, &.{ "a:", stream_n_lit });
+
+		const argv: []const []const u8 =
+		&.{
+			"ffprobe",
+			"-i", file_path,
+			"-loglevel", "error",
+			"-v", "0",
+			"-select_streams", stream_lit,
+			"-show_entries", "format=duration",
+			"-of", "csv=p=0",
+		};
+
+		const len_chars = try util.exec(arena_alloc, argv, .{ .stderr = .fail });
+		const len: ?f64 = if (len_chars) |c| std.fmt.parseFloat(f64, c[0..c.len-1]) catch null else null;
+
+		return Self
 		{
-			self.allocator.free(self.channels[i]);
-		}
-		self.* = undefined;
-	}
-};
-pub fn ffprobe(allocator: Allocator, file_path: []const u8) !AudioSpecs
-{
-	var argv = [_][]const u8
-	{ 
-		"ffprobe",
-		"-i", undefined,
-		"-loglevel", "error",
-		"-v", "0",
-		"-select_streams", undefined,
-		"-show_entries", undefined,
-		"-of", "compact=p=0:nk=1",
-	};
-	const argi = enum(usize)
-	{
-		file_path = 2,
-		select_streams = 8,
-		show_entries = 10,
-	};
-
-	argv[@intFromEnum(argi.file_path)] = file_path;
-
-	// get channel count
-	argv[@intFromEnum(argi.select_streams)] = "a";
-	argv[@intFromEnum(argi.show_entries)] = "stream=channels";
-
-	const channel_c_chars = try util.exec(allocator, &argv, .{ .stderr = .fail });
-	defer if (channel_c_chars) |c| allocator.free(c);
-
-	// var channel_c: usize = 0;
-	// const channel_list = res_channels.stdout;
-	// for (channel_list) |c|
-	// {
-	// 	if (c == '1')
-	// 	{
-	// 		channel_c += 1;
-	// 	}
-	// }
-	const channel_c = if (channel_c_chars) |c| try std.fmt.parseInt(usize, c[0..c.len-1], 10) else return FFmpegError.NoChannels;
-
-	// get ChannelSpecs of every channel
-	// var max_len = 0; // TODO
-	const channels = try allocator.alloc(ChannelSpecs, channel_c);
-	errdefer allocator.free(channels);
-
-	var a = @constCast("a:_");
-
-	for (0..channel_c) |ch|
-	{
-		const ch_char = std.fmt.digitToChar(@intCast(ch), .lower);
-		a[2] = ch_char;
-		std.debug.print("{s}", .{a});
-		argv[@intFromEnum(argi.select_streams)] = a;
-
-		// get bit rate
-		argv[@intFromEnum(argi.show_entries)] = "stream=bit_rate";
-
-		const bit_rate_chars = try util.exec(allocator, &argv, .{ .stderr = .fail });
-		defer if (bit_rate_chars) |c| allocator.free(c);
-
-		const bit_rate = if (bit_rate_chars) |c| try std.fmt.parseInt(u32, c[0..c.len-1], 10) else return FFmpegError.NoBitRate;
-
-		// get sample rate
-		argv[@intFromEnum(argi.show_entries)] = "stream=sample_rate";
-
-		const sample_rate_chars = try util.exec(allocator, &argv, .{ .stderr = .fail });
-		defer if (sample_rate_chars) |c| allocator.free(c);
-
-		const sample_rate = if (sample_rate_chars) |c| try std.fmt.parseInt(u32, c[0..c.len-1], 10) else return FFmpegError.NoSampleRate;
-
-		channels[ch] = .{
-			.bit_rate = bit_rate,
-			.sample_rate = sample_rate,
-			.len = null,
+			.stream = AudioStream { .none = {} },
+			.channel = channel,
+			.len = len,
 		};
 	}
+};
 
-	return AudioSpecs
-	{
-		.allocator = allocator,
-		.stream = AudioStream { .none = {} },
-		.channels = channels,
-		.max_len = null,
-	};
-
-	// const specs = try allocator.create(AudioSpecs);
-	// errdefer allocator.destroy(specs);
-	// specs.* = .{
-	// 	.stream = stream,
-	// 	.channels = channels[0..channels.len],
-	// 	.max_len = null,
-	// };
-}
 
 pub fn ffmpegAnyToPCM(allocator: Allocator, in_file_path: []u8, cache_path: []u8, cache_file_name: []u8, overwrite: bool) !void
 {
@@ -292,6 +224,7 @@ pub fn ffmpegAnyToPCM(allocator: Allocator, in_file_path: []u8, cache_path: []u8
 }
 
 
+
 test "ffmpeg check"
 {
 	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -313,6 +246,22 @@ test "ffprobeChannelOverview of mp3"
 	defer allocator.free(info);
 
 	std.log.info("Channel overview: {any}\n", .{ info });
+}
+
+test "init AudioSpecs with channel"
+{
+	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	defer std.debug.assert(gpa.deinit() == .ok);
+
+	const allocator = gpa.allocator();
+
+	const file_path = "./test_in/mp3_test_in.mp3";
+
+	const ch_infos = try ffprobeChannelOverview(allocator, file_path);
+	defer allocator.free(ch_infos);
+
+	const audio_specs = try AudioSpecs.init(allocator, file_path, ch_infos[0]);
+	std.log.info("{any}", .{ audio_specs });
 }
 
 // test "ffprobe"

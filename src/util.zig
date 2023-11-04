@@ -28,24 +28,11 @@ pub const ExecError = std.process.Child.RunError || error
 	WrongExitCode,
 	Stderr,
 };
-const ExecStdoutHandling = enum
-{
-	ret,
-	log,
-	ignore,
-};
-const ExecStderrHandling = enum
-{
-	fail,
-	log,
-	ignore,
-};
-const ExecFlags = struct
+pub const ExecFlags = struct
 {
 	expect: ?u8 = 0, // null: exit code will be ignored
-	stdout: ExecStdoutHandling = .ret,
-	stderr: ExecStderrHandling = .log,
-	max_output_bytes: usize = 50 * 1024,
+	stdout: enum { ret, log, ignore } = .ret,
+	stderr: enum { fail, log, ignore } = .log,
 };
 /// argv[0] should be the name of the executable to execute.
 /// On success, caller owns the returned slice if it is non-null.
