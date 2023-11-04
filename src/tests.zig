@@ -1,3 +1,8 @@
+test "set global testing log level"
+{
+	@import("std").testing.log_level = .info;
+}
+
 comptime
 {
 	// _ = @import("util.zig");

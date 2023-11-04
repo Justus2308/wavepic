@@ -23,12 +23,16 @@ pub inline fn litToArr(comptime lit: []const u8) [lit.len]u8
 	}
 }
 
-
-const ExecError = std.process.Child.RunError || error
+pub const ExecError = std.process.Child.RunError || error
 {
 	WrongExitCode,
-	NoStdout,
-	GotStderr,
+	Stderr,
+};
+const ExecStdoutHandling = enum
+{
+	ret,
+	log,
+	ignore,
 };
 const ExecStderrHandling = enum
 {
@@ -36,47 +40,51 @@ const ExecStderrHandling = enum
 	log,
 	ignore,
 };
-const ExecFlags = packed struct
+const ExecFlags = struct
 {
-	expect: u8 = 0,
-	require_stdout: bool = false,
-	stderr: ExecStderrHandling = .fail,
+	expect: ?u8 = 0, // null: exit code will be ignored
+	stdout: ExecStdoutHandling = .ret,
+	stderr: ExecStderrHandling = .log,
+	max_output_bytes: usize = 50 * 1024,
 };
-// argv[0] should be the name of the executable to execute
-// on success, caller owns the returned slice if it is non-null
-pub fn exec(allocator: Allocator, argv: []const []const u8, flags: ExecFlags) ExecError![]u8
+/// argv[0] should be the name of the executable to execute.
+/// On success, caller owns the returned slice if it is non-null.
+/// Eval order: stderr -> exit code -> stdout.
+pub fn exec(allocator: Allocator, argv: []const []const u8, flags: ExecFlags) ExecError!?[]u8
 {
 	const res = try std.process.Child.run(.{
 		.allocator = allocator,
 		.argv = argv,
 	});
 
-	const out = res.stdout;
-	const err = res.stderr;
+	const stdout = res.stdout;
+	const stderr = res.stderr;
 
-	errdefer allocator.free(out);
-	defer allocator.free(err);
+	errdefer allocator.free(stdout);
+	defer allocator.free(stderr);
 
-	if (res.stderr.len != 0)
+	
+	if (stderr.len != 0) switch (flags.stderr)
 	{
-		switch (flags.stderr)
-		{
-			.fail => return ExecError.GotStderr,
-			.log => std.log.info("{s}", .{ err }),
-			.ignore => {},
-		}
-	}
+		.fail => return ExecError.Stderr,
+		.log => std.log.info("{s}", .{ stderr }),
+		.ignore => {},
+	};
 
-	if (res.term.Exited != flags.expect)
+	if (flags.expect != null and res.term.Exited != flags.expect.?)
 	{
 		return ExecError.WrongExitCode;
 	}
 
-	if (out.len == 0 and flags.require_stdout)
+	if (stdout.len != 0) switch (flags.stdout)
 	{
-		return ExecError.NoStdout;
-	}
-	return out;
+		.ret => return stdout,
+		.log => std.log.info("{s}", .{ stdout }),
+		.ignore => {},
+	};
+
+	allocator.free(stdout);
+	return null;
 }
 
 pub fn argvTokenize(allocator: Allocator, args: anytype) ![][]const u8
@@ -126,11 +134,11 @@ test "exec 'echo' success"
 
 	const argv = [_][]const u8 { "echo", "test", };
 
-	const out = try exec(allocator, &argv, .{});
+	const out = try exec(allocator, &argv, .{ .stderr = .fail });
 	defer if (out) |o| allocator.free(o);
 
 	const out_chars = out orelse "";
-	std.log.info("{any}", .{out_chars});
+	std.log.info("{s}", .{ out_chars });
 }
 
 test "exec 'echo' wrong exit code"
