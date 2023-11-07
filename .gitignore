@@ -2,11 +2,9 @@
 zig-cache/*
 zig-out/*
 
-# test audio files
-*.flac
-*.mp3
-*.pcm
-*.wav
+# test files
+test_in/*
+test_out/*
 
 # other
 \#*

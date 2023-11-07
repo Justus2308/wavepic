@@ -1,17 +1,17 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 
-const c = @cImport(
-{
-	@cInclude("unistd.h");
-});
+const c = @import("c.zig");
+const convert = @import("convert.zig");
 
 
-pub inline fn getPID() i32
+/// returned c_int is an i32
+pub const getPID = switch (builtin.os.tag)
 {
-	const pid: i32 = c.getpid();
-	return pid;
-}
+	.windows => c._getpid,
+	else => c.getpid,
+};
 
 pub inline fn litToArr(comptime lit: []const u8) [lit.len]u8
 {
@@ -74,6 +74,34 @@ pub fn exec(allocator: Allocator, argv: []const []const u8, flags: ExecFlags) Ex
 	return null;
 }
 
+/// Caller owns returned slice on success
+pub fn concatPath(
+	allocator: Allocator,
+	path_slices: []const []const u8, name: []const u8, fmt: convert.Fmt
+) Allocator.Error![]u8
+{
+	const slash_lit = comptime switch (builtin.os.tag)
+	{
+		.windows => '\\',
+		else => '/',
+	};
+
+	const full_path = path_slices
+	++ switch (path_slices[.len-1][.len-1])
+	{
+		slash_lit => &.{},
+		else => slash_lit,
+	}
+	++ name
+	++ switch(fmt)
+	{
+		.unknown => &.{},
+		else => &.{ ".", @tagName(fmt) },
+	};
+
+	return try std.mem.concat(allocator, u8, full_path);
+}
+
 pub fn argvTokenize(allocator: Allocator, args: anytype) ![][]const u8
 {
 	const ArgsType = @TypeOf(args);
@@ -111,6 +139,13 @@ pub fn argvTokenize(allocator: Allocator, args: anytype) ![][]const u8
 	return slc;
 }
 
+
+
+test "getPID"
+{
+	const pid = getPID();
+	std.log.info("PID: {d}\n", .{ pid });
+}
 
 test "exec 'echo' success"
 {

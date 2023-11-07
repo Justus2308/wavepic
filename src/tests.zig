@@ -5,11 +5,10 @@ test "set global testing log level"
 
 comptime
 {
-	// _ = @import("util.zig");
-	// _ = @import("decode.zig");
-	// _ = @import("main.zig");
-	_ = @import("ffmpeg.zig");
+	_ = @import("convert.zig");
 	_ = @import("util.zig");
+	_ = @import("load.zig");
+	_ = @import("save.zig");
 
 	@import("std").testing.refAllDecls(@This());
 }
