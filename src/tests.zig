@@ -1,14 +1,10 @@
-test "set global testing log level"
+test
 {
-	@import("std").testing.log_level = .info;
-}
+	const testing = @import("std").testing;
+	testing.log_level = .debug;
+	testing.refAllDecls(@This());
 
-comptime
-{
 	_ = @import("convert.zig");
 	_ = @import("util.zig");
-	_ = @import("load.zig");
-	_ = @import("save.zig");
-
-	@import("std").testing.refAllDecls(@This());
+	_ = @import("file_io.zig");
 }

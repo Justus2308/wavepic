@@ -5,22 +5,15 @@ const Allocator = std.mem.Allocator;
 const c = @import("c.zig");
 const convert = @import("convert.zig");
 
-
-/// returned c_int is an i32
-pub const getPID = switch (builtin.os.tag)
+pub inline fn getPID() u32
 {
-	.windows => c._getpid,
-	else => c.getpid,
-};
-
-pub inline fn litToArr(comptime lit: []const u8) [lit.len]u8
-{
-	comptime
+	const pid: u32 = switch (builtin.os.tag)
 	{
-		var arr: [lit.len]u8 = undefined;
-		@memcpy(&arr, lit);
-		return arr;
-	}
+		.windows => std.os.windows.kernel32.GetCurrentProcessId(),
+		.linux => @max(std.os.linux.getpid(), 0),
+		else => @max(c.getpid(), 0), // replace as soon as implemented in zig
+	};
+	return pid;
 }
 
 pub const ExecError = std.process.Child.RunError || error
@@ -102,6 +95,16 @@ pub fn concatPath(
 	return try std.mem.concat(allocator, u8, full_path);
 }
 
+pub inline fn litToArr(comptime lit: []const u8) [lit.len]u8
+{
+	comptime
+	{
+		var arr: [lit.len]u8 = undefined;
+		@memcpy(&arr, lit);
+		return arr;
+	}
+}
+
 pub fn argvTokenize(allocator: Allocator, args: anytype) ![][]const u8
 {
 	const ArgsType = @TypeOf(args);
@@ -144,7 +147,7 @@ pub fn argvTokenize(allocator: Allocator, args: anytype) ![][]const u8
 test "getPID"
 {
 	const pid = getPID();
-	std.log.info("PID: {d}\n", .{ pid });
+	std.log.debug("PID: {d}\n", .{ pid });
 }
 
 test "exec 'echo' success"
@@ -160,7 +163,7 @@ test "exec 'echo' success"
 	defer if (out) |o| allocator.free(o);
 
 	const out_chars = out orelse "";
-	std.log.info("{s}", .{ out_chars });
+	std.log.debug("{s}", .{ out_chars });
 }
 
 test "exec 'echo' wrong exit code"

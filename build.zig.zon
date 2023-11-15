@@ -3,16 +3,10 @@
 	.version = "0.1.0",
 
 	.dependencies = .{
-		// use as soon as zig zon fixes its hashes
 		// .ffmpeg = .{
 		// 	.url = "https://github.com/andrewrk/ffmpeg/archive/27a198a581d2c40753ab37a9635f373aad61904e.tar.gz",
 		// 	.hash = "1220c439bd3d820085113b97391d85453440468b395cab3729cd1ab3b262488db5b2",
 		// },
-		// temporary branch
-		.ffmpeg = .{
-			.url = "https://github.com/Justus2308/ffmpeg/archive/9ea5e8858eb4d46c2bad430c871d760d658524fa.tar.gz",
-			.hash = "1220961d2dfc2fcf22b7f35afced1cb62fb13c3d2372e6211cc6396d33e4170dca76",
-		},
 		// not used rn, vk.xml is in repo
 		// .vk_xml = .{
 		// 	.url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/374f9fd97520f6dd1b80745de09208d878ab4a52.tar.gz",

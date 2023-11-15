@@ -277,7 +277,7 @@ test "ffprobeChannelOverview of mp3"
 	const info = try ffprobeChannelOverview(allocator, "./test_in/mp3_test_in.mp3");
 	defer allocator.free(info);
 
-	std.log.info("Channel overview: {any}\n", .{ info });
+	std.log.debug("Channel overview: {any}\n", .{ info });
 }
 
 test "init AudioSpecs with channel"
@@ -293,7 +293,7 @@ test "init AudioSpecs with channel"
 	defer allocator.free(ch_infos);
 
 	const audio_specs = try AudioSpecs.init(allocator, file_path, ch_infos[0]);
-	std.log.info("{any}", .{ audio_specs });
+	std.log.debug("{any}", .{ audio_specs });
 }
 
 // test "mp3 to PCM"

@@ -19,11 +19,6 @@ pub fn build(b: *std.Build) void
 
 	// dependencies
 
-	const ffmpeg_dep = b.dependency("ffmpeg", .{
-		.target = target,
-		.optimize = optimize,
-	});
-
 	const vkzig_dep = b.dependency("vulkan_zig", .{
 		.registry = @as([]const u8, b.pathFromRoot("./vk.xml")),
 	});
@@ -40,16 +35,14 @@ pub fn build(b: *std.Build) void
 		.optimize = optimize,
 	});
 
+	exe.setVerboseCC(true);
+	exe.setVerboseLink(true);
+
 
 	// link C libs
 
-	exe.linkLibrary(ffmpeg_dep.artifact("ffmpeg"));
+	dynLinkDeps(exe);
 	exe.linkLibC();
-
-	// exe.addIncludePath(.{ .path = "." });
-
-	exe.setVerboseCC(true);
-	exe.setVerboseLink(true);
 
 	// Vulkan bindings
 
@@ -92,15 +85,7 @@ pub fn build(b: *std.Build) void
 		.optimize = .Debug,
 	});
 
-	// link to already installed ffmpeg libs instead
-	// of fetching it separately as a dependency to
-	// speed up compilation for testing
-	// add later as compilation option?
-	// ***
-	dynLinkFFmpeg(unit_tests);
-	// ***
-
-	// unit_tests.linkLibrary(ffmpeg_dep.artifact("ffmpeg"));
+	dynLinkDeps(unit_tests);
 	unit_tests.linkLibC();
 
 	const run_unit_tests = b.addRunArtifact(unit_tests);
@@ -112,8 +97,7 @@ pub fn build(b: *std.Build) void
 	test_step.dependOn(&run_unit_tests.step);
 }
 
-// add as option to main compile step later
-fn dynLinkFFmpeg(exe: *std.Build.Step.Compile) void
+fn dynLinkDeps(exe: *std.Build.Step.Compile) void
 {
 	const lib_path = std.os.getenv("DYLD_LIBRARY_PATH");
 	if (lib_path) |p|
@@ -127,10 +111,8 @@ fn dynLinkFFmpeg(exe: *std.Build.Step.Compile) void
 	if (fallback_framework_path) |p|
 		exe.addLibraryPath(.{ .path = p});
 
-	exe.linkSystemLibrary2("avcodec", .{ .needed = true });
-	exe.linkSystemLibrary2("avformat", .{ .needed = true });
-	exe.linkSystemLibrary2("avutil", .{ .needed = true });
-	exe.linkSystemLibrary2("swresample", .{ .needed = true });
+	exe.linkSystemLibrary2("lz4", .{ .needed = true });
 
-	// TODO: check versions of libav
+	const c = @import("src/c.zig");
+	comptime if (c.LZ4_VERSION_NUMBER < 10904) @compileError("liblz4 >= 1.9.4 needed");
 }
