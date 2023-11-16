@@ -18,11 +18,53 @@ const windows = struct {
 const diff = @import("diff.zig");
 
 
+const MapCounter = switch (builtin.mode) {
+	.Debug, .ReleaseSafe => struct {
+		counter: usize = 0,
 
-const SectionMap = struct {
-	slc: []align(page_size) u8,
-	deltas: diff.DeltaStack,
+		pub fn add(self: *MapCounter, n: usize) void {
+			const res = @addWithOverflow(self.counter, n);
+			assert(res.@"1" != @as(u1, 1));
+			self.counter = res.@"0";
+		}
+
+		pub fn sub(self: *MapCounter, n: usize) void {
+			const res = @subWithOverflow(self.counter, n);
+			assert(res.@"1" != @as(u1, 1));
+			self.counter = res.@"0";
+		}
+
+		pub fn check(self: *MapCounter, n: usize) void {
+			assert(self.counter == n);
+		}
+	},
+	else => struct {
+		pub fn add(self: *MapCounter, n: usize) void { _ = self; _ = n; }
+		pub fn sub(self: *MapCounter, n: usize) void { _ = self; _ = n; }
+		pub fn check(self: *MapCounter, n: usize) void { _ = self; _ = n; }
+	},
 };
+
+
+const SectionMap = switch (target_os) {
+	.windows => struct {
+		slc: []u8,
+		deltas: diff.DeltaStack,
+
+		/// Just don't.
+		DO_NOT_TOUCH_windows_orig_slc: []align(page_size) u8,
+		DO_NOT_TOUCH_windows_slc_offset: u64, // Is this necessary? TODO
+
+		comptime {
+			@compileError("TODO: Implement this esp. the do not touch part");
+		}
+	},
+	else => struct {
+		slc: []align(page_size) u8,
+		deltas: diff.DeltaStack,
+	},
+};
+
 
 pub const FileMapper = switch (target_os) {
 	.windows => struct {
@@ -30,15 +72,21 @@ pub const FileMapper = switch (target_os) {
 
 		handle: Handle,
 		size: u64,
+
+		// Debug only
+		map_counter: MapCounter,
+
 		// Windows only
 		windows_orig_handle: Handle,
 		windows_obj_name: []const u8,
+		windows_alloc_granularity: u32,
 
 		const Self = @This();
 		pub const Error = Allocator.Error
 			// init
 			|| windows.GetFileSizeError || std.fmt.AllocPrintError || windows.CreateFileMappingError
 			// map
+			|| windows.MapViewOfFileError
 			// unmap
 			|| windows.UnmapViewOfFileError;
 
@@ -46,8 +94,13 @@ pub const FileMapper = switch (target_os) {
 		pub fn init(allocator: Allocator, handle: Handle) Error!Self {
 			const size = try windows.GetFileSizeEx(handle);
 
-			const tid_str = try std.fmt.allocPrint(allocator, "{d}", .{
-				windows.kernel32.GetCurrentThreadId()});
+			const name = blk: {
+				const tid = @as(u32, windows.kernel32.GetCurrentThreadId());
+				const rand = std.rand.DefaultPrng.init(0).random().int(u16);
+
+				break :blk try std.fmt.allocPrint(allocator, "FileMapping_{d}_{d}", .{ tid, rand });
+			};
+			errdefer allocator.free(name);
 
 			const map_handle = try windows.CreateFileMapping(
 				handle,
@@ -55,8 +108,19 @@ pub const FileMapper = switch (target_os) {
 				windows.PAGE_READWRITE,
 				0,
 				0,
-				tid_str,
+				name,
 			);
+
+			
+			const alloc_granularity = blk: {
+				var sys_info: windows.SYSTEM_INFO = undefined;
+				windows.kernel32.GetSystemInfo(&sys_info);
+
+				assert(sys_info.dwAllocationGranularity >= page_size);
+				assert(sys_info.dwAllocationGranularity % page_size == 0);
+
+				break :blk @as(u32, sys_info.dwAllocationGranularity);
+			};
 
 			return .{
 				.allocator = allocator,
@@ -65,13 +129,17 @@ pub const FileMapper = switch (target_os) {
 				.size = size,
 
 				.windows_orig_handle = handle,
-				.windows_obj_name = tid_str,
+				.windows_obj_name = name,
+				.windows_alloc_granularity = alloc_granularity,
 			};
 		}
 
 		pub fn deinit(self: *Self) void {
-			_ = self;
-			@compileError("TODO: implement deinit() for windows.\n");
+			self.map_counter.check(0);
+
+			windows.CloseHandle(self.handle);
+			self.allocator.free(self.windows_obj_name);
+			self.* = undefined;
 		}
 
 		pub const Options = struct {
@@ -80,31 +148,72 @@ pub const FileMapper = switch (target_os) {
 			direct: bool = false,
 		};
 		pub fn map(self: *Self, options: Options) Error!SectionMap {
-			_ = self;
-			_ = options;
-			@compileError("TODO: implement map() for windows.\n");
+			assert(options.from < options.to orelse self.size);
+
+			const offset = options.from;
+			// Round down to allocation granularity multiple
+			const aligned_offset: u64 = offset & (~(@as(u64, self.windows_alloc_granularity) - 1));
+
+			const slc_offset = offset - aligned_offset;
+
 			// Alignment is (probably) windows allocation granularity
 			// which seems to be 64KiB 99% of the time.
 			// There should be no problems when casting this to the
 			// systems page size as it also doesn't seem to exceed
 			// 64KiB (probably).
-			// const slc = windows.MapViewOfFile(self.handle, TODO, TODO, TODO, TODO);
+			const orig_slc = blk: {
+				const access = if (options.direct) windows.FILE_MAP.ALL_ACCESS
+					else windows.FILE_MAP.ALL_ACCESS | windows.FILE_MAP.COPY;
 
-			// const deltas = diff.DeltaStack.init(self.allocator, .{});
+				const length = (options.to orelse self.size) - options.from;
 
-			// return .{
-			// 	.slc = @alignCast(slc),
-			// 	.deltas = deltas,
-			// };
+				// Every version of Windows this is ever going to run on is little
+				// endian but let's check anyways because there are exceptions
+				assert(builtin.cpu.arch.endian() == std.builtin.Endian.Little);
+
+				// alternatively:
+				// const HiLoU64 = packed union {
+				// 	base: u64,
+				// 	split: [2]u32,
+				// };
+				// const hi_lo = HiLoU64 { .base = aligned_offset };
+
+				const higher: u32 = @bitCast(aligned_offset >> 32);
+				const lower: u32 = @bitCast(aligned_offset & 0xFFFF_FFFF);
+
+				break :blk try windows.MapViewOfFile(
+					self.handle,
+					access,
+					higher,
+					lower,
+					length - offset,
+				);
+			};
+
+			const deltas = diff.DeltaStack.init(self.allocator, .{});
+
+			self.map_counter.add(1);
+
+			return .{
+				.slc = orig_slc[slc_offset..orig_slc.len],
+				.deltas = deltas,
+
+				.DO_NOT_TOUCH_windows_orig_slc = @alignCast(orig_slc),
+				.DO_NOT_TOUCH_windows_slc_offset = slc_offset,
+			};
 		}
 
-		/// This has to recieve the exact slice returned by map().
-		pub fn unmap(slc: []align(page_size) u8) Error!void {
-			try windows.UnmapViewOfFile(@ptrCast(slc));
+		pub fn unmap(self: *Self, section: SectionMap) void {
+			windows.UnmapViewOfFile(@ptrCast(section.DO_NOT_TOUCH_windows_orig_slc))
+				catch unreachable;
+			section.deltas.deinit();
+
+			self.map_counter.sub(1);
 		}
 
 		pub fn apply(self: *Self) Error!void {
 			_ = self;
+			@compileError("TODO: implement apply");
 		}
 	},
 	else => struct {
@@ -112,6 +221,9 @@ pub const FileMapper = switch (target_os) {
 
 		handle: Handle,
 		size: u64,
+
+		// Debug only
+		map_counter: MapCounter,
 
 		const Self = @This();
 		pub const Error = Allocator.Error
@@ -134,8 +246,9 @@ pub const FileMapper = switch (target_os) {
 		}
 
 		pub fn deinit(self: *Self) void {
-			os.munmap(self.ptr);
-			self.ptr = undefined;
+			self.map_counter.check(0);
+
+			self.* = undefined;
 		}
 
 		pub const Options = struct {
@@ -144,6 +257,8 @@ pub const FileMapper = switch (target_os) {
 			direct: bool = false,
 		};
 		pub fn map(self: *Self, options: Options) Error!SectionMap {
+			assert(options.from < options.to orelse self.size);
+
 			const slc = blk: {
 				const offset = options.from;
 				const length = (options.to orelse self.size) - options.from;
@@ -151,7 +266,7 @@ pub const FileMapper = switch (target_os) {
 				break :blk try os.mmap(
 					null,
 					@as(usize, length),
-					os.PROT.READ || os.PROT.WRITE,
+					os.PROT.READ | os.PROT.WRITE,
 					if (options.direct) os.MAP.SHARED else os.MAP.PRIVATE,
 					self.handle,
 					offset,
@@ -160,6 +275,8 @@ pub const FileMapper = switch (target_os) {
 
 			const deltas = diff.DeltaStack.init(self.allocator, .{});
 
+			self.map_counter.add(1);
+
 			return .{
 				.slc = slc,
 				.deltas = deltas,
@@ -167,12 +284,16 @@ pub const FileMapper = switch (target_os) {
 		}
 
 		/// This has to recieve the exact slice returned by map().
-		pub fn unmap(slc: []align(page_size) u8) Error!void {
-			os.munmap(slc);
+		pub fn unmap(self: *Self, section: SectionMap) void {
+			os.munmap(section.slc);
+			section.deltas.deinit();
+
+			self.map_counter.sub();
 		}
 
 		pub fn apply(self: *Self) Error!void {
-			try os.flock(self.fd, os.LOCK.EX);
+			try os.flock(self.fd, os.LOCK.EX); // ???
+			@compileError("TODO: implement apply");
 		}
 	},
 };

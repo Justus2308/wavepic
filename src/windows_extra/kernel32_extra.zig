@@ -28,6 +28,11 @@ pub extern "kernel32" fn MapViewOfFile(
 	dwNumberOfBytesToMap: SIZE_T,
 ) callconv(WINAPI) ?LPVOID;
 
+pub extern "kernel32" fn FlushViewOfFile(
+	lpBaseAddress: LPCVOID,
+	dwNumberOfBytesToFlush: SIZE_T,
+) callconv(WINAPI) BOOL;
+
 pub extern "kernel32" fn UnmapViewOfFile(
 	lpBaseAddress: LPCVOID,
 ) callconv(WINAPI) BOOL;

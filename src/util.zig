@@ -5,15 +5,12 @@ const Allocator = std.mem.Allocator;
 const c = @import("c.zig");
 const convert = @import("convert.zig");
 
-pub inline fn getPID() u32
-{
-	const pid: u32 = switch (builtin.os.tag)
-	{
+pub inline fn getPID() u32 {
+	return @as(u32, switch (builtin.os.tag) {
 		.windows => std.os.windows.kernel32.GetCurrentProcessId(),
 		.linux => @max(std.os.linux.getpid(), 0),
 		else => @max(c.getpid(), 0), // replace as soon as implemented in zig
-	};
-	return pid;
+	});
 }
 
 pub const ExecError = std.process.Child.RunError || error
