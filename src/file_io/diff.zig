@@ -12,8 +12,7 @@ const c = @import("c.zig");
 
 /// Delta interval, start and end must be
 /// seekable positions in the target
-pub const Delta = struct
-{
+pub const Delta = struct {
 	start: u64,
 	end: u64,
 };
@@ -29,8 +28,7 @@ pub const Delta = struct
 // Now the deltas are ready to be applied to a target file.
 // All allocations are managed by a memory pool and freed
 // as soon as the deltas are applied.
-pub const DeltaStack = struct
-{
+pub const DeltaStack = struct {
 	const List = std.SinglyLinkedList(Delta);
 	const Pool = std.heap.MemoryPool(List.Node);
 
@@ -42,22 +40,18 @@ pub const DeltaStack = struct
 	merge_threshold: u64,
 
 	const Self = @This();
-	pub const Error = error
-	{
+	pub const Error = error {
 		OutOfMemory, // for memory pool
 	};
 
-	pub const Options = struct
-	{
+	pub const Options = struct {
 		/// max distance between deltas to merge, in bytes
 		merge_threshold: u64 = 256,
 	};
-	pub fn init(allocator: Allocator, options: Options) Self
-	{
+	pub fn init(allocator: Allocator, options: Options) Self {
 		var pool = Pool.init(allocator);
 
-		return
-		.{
+		return .{
 			.allocator = allocator,
 			.pool = pool,
 			.list = .{},
@@ -69,8 +63,7 @@ pub const DeltaStack = struct
 	/// Will clear all deltas and all cached undo/redo steps.
 	/// Half of the already allocated memory will be retained
 	/// with a soft minimum of the size of 256 Nodes.
-	pub fn resetHard(self: *Self) void
-	{
+	pub fn resetHard(self: *Self) void {
 		// self.pool.reset(); // use this as soon as it's properly implemented
 		const half_cap = self.pool.arena.queryCapacity() >> 1;
 		const limit = @max(256 * @sizeOf(List.Node), half_cap);
@@ -82,13 +75,11 @@ pub const DeltaStack = struct
 
 	/// Will clear all deltas but keep all cached undo/redo steps.
 	/// All allocated memory will be retained. TODO: change this
-	pub fn resetDeltas(self: *Self) void
-	{
+	pub fn resetDeltas(self: *Self) void {
 		_ = self;
 	}
 
-	pub fn deinit(self: *Self) void
-	{
+	pub fn deinit(self: *Self) void {
 		self.pool.deinit();
 		self.* = undefined;
 	}
@@ -98,8 +89,7 @@ pub const DeltaStack = struct
 	/// as unchecked in releaseFast and releaseSmall mode.
 	/// Potential error is OutOfMemory, the pool will still
 	/// be intact and remain unchanged if this error occurs.
-	pub fn push(self: *Self, start: u64, end: u64) Error!void
-	{
+	pub fn push(self: *Self, start: u64, end: u64) Error!void {
 		assert(start < end);
 
 		var node = try self.pool.create();
@@ -113,15 +103,13 @@ pub const DeltaStack = struct
 	/// is a noop right now.
 	/// TODO: make undos possible after applying deltas by adding them
 	/// as new deltas
-	pub fn pop(self: *Self) void
-	{
+	pub fn pop(self: *Self) void {
 		const node = self.list.popFirst() orelse return;
 		self.pool.destroy(node);
 	}
 
 	/// Returns a delta whose interval contains all other deltas
-	pub fn mergeIntervals(self: *Self) Delta
-	{
+	pub fn mergeIntervals(self: *Self) Delta {
 		var head = self.list.first;
 		head = mergeSort(head);
 
@@ -131,14 +119,10 @@ pub const DeltaStack = struct
 
 		const max_end = node.data.end;
 
-		while (next_node) |next| : (next_node = next.next)
-		{
-			if (node.data.start < next.data.end + self.merge_threshold) // overlap
-			{
+		while (next_node) |next| : (next_node = next.next) {
+			if (node.data.start < next.data.end + self.merge_threshold) {
 				node.data.start = @min(node.data.start, next.data.start);
-			}
-			else // no overlap
-			{
+			} else {
 				merged.prepend(node);
 				node = next;
 			}
@@ -149,8 +133,7 @@ pub const DeltaStack = struct
 
 		const min_start = self.list.first.?.data.start;
 
-		return
-		.{
+		return .{
 			.start = min_start,
 			.end = max_end,
 		};
@@ -163,8 +146,7 @@ pub const DeltaStack = struct
 		var slow = head;
 		var fast = head;
 
-		while (fast.?.next != null and fast.?.next.?.next != null)
-		{
+		while (fast.?.next != null and fast.?.next.?.next != null) {
 			slow = slow.?.next;
 			fast = fast.?.next.?.next;
 		}
@@ -185,27 +167,22 @@ pub const DeltaStack = struct
 		var head_node = head orelse return half;
 		var half_node = half orelse return head;
 
-		if (head_node.data.end > half_node.data.end)
-		{
+		if (head_node.data.end > half_node.data.end) {
 			head_node.next = merge(head_node.next, half_node);
 			return head_node;
-		}
-		else
-		{
+		} else {
 			half_node.next = merge(head_node, half_node.next);
 			return half_node;
 		}
 	}
 
 
-	pub fn dump(self: *Self) void
-	{
+	pub fn dump(self: *Self) void {
 		std.debug.print("DeltaManager dump:\n", .{});
 		
 		var node = self.list.first;
 		var i: usize = 0;
-		while (node != null) : (node = node.?.*.next)
-		{
+		while (node != null) : (node = node.?.*.next) {
 			std.debug.print("{d}: {any}\n", .{ i, node.?.*.data });
 			i += 1;
 		}
@@ -213,62 +190,62 @@ pub const DeltaStack = struct
 };
 
 
-test "DeltaManager insert elements"
+test "DeltaStack insert elements"
 {
-	var deltas = DeltaList.init(std.testing.allocator, .{});
+	var deltas = DeltaStack.init(std.testing.allocator, .{});
 	defer deltas.deinit();
 
-	try deltas.do(0, 10);
-	try deltas.do(3, 11);
-	try deltas.do(2, 5);
-	try deltas.do(9, 27);
-	try deltas.do(403, 643);
-	try deltas.do(51, 89);
-	try deltas.do(1, 42);
-	try deltas.do(103, 210);
-	try deltas.do(91, 104);
-	try deltas.do(378, 415);
+	try deltas.push(0, 10);
+	try deltas.push(3, 11);
+	try deltas.push(2, 5);
+	try deltas.push(9, 27);
+	try deltas.push(403, 643);
+	try deltas.push(51, 89);
+	try deltas.push(1, 42);
+	try deltas.push(103, 210);
+	try deltas.push(91, 104);
+	try deltas.push(378, 415);
 
 	deltas.dump();
 }
 
-test "DeltaManager merge sort"
+test "DeltaStack merge sort"
 {
-	var deltas = DeltaList.init(std.testing.allocator, .{});
+	var deltas = DeltaStack.init(std.testing.allocator, .{});
 	defer deltas.deinit();
 
-	try deltas.do(0, 10);
-	try deltas.do(3, 11);
-	try deltas.do(2, 5);
-	try deltas.do(9, 27);
-	try deltas.do(403, 643);
-	try deltas.do(51, 89);
-	try deltas.do(1, 42);
-	try deltas.do(103, 210);
-	try deltas.do(91, 104);
-	try deltas.do(378, 415);
+	try deltas.push(0, 10);
+	try deltas.push(3, 11);
+	try deltas.push(2, 5);
+	try deltas.push(9, 27);
+	try deltas.push(403, 643);
+	try deltas.push(51, 89);
+	try deltas.push(1, 42);
+	try deltas.push(103, 210);
+	try deltas.push(91, 104);
+	try deltas.push(378, 415);
 
-	const sorted = DeltaList.mergeSort(deltas.list.first);
+	const sorted = DeltaStack.mergeSort(deltas.list.first);
 	deltas.list.first = sorted;
 
 	deltas.dump();
 }
 
-test "DeltaManager merge intervals"
+test "DeltaStack merge intervals"
 {
-	var deltas = DeltaManager.init(std.testing.allocator, .{ .merge_threshold = 8 });
+	var deltas = DeltaStack.init(std.testing.allocator, .{ .merge_threshold = 8 });
 	defer deltas.deinit();
 
-	try deltas.do(0, 10);
-	try deltas.do(3, 11);
-	try deltas.do(2, 5);
-	try deltas.do(9, 27);
-	try deltas.do(403, 643);
-	try deltas.do(51, 89);
-	try deltas.do(1, 42);
-	try deltas.do(103, 210);
-	try deltas.do(91, 104);
-	try deltas.do(378, 415);
+	try deltas.push(0, 10);
+	try deltas.push(3, 11);
+	try deltas.push(2, 5);
+	try deltas.push(9, 27);
+	try deltas.push(403, 643);
+	try deltas.push(51, 89);
+	try deltas.push(1, 42);
+	try deltas.push(103, 210);
+	try deltas.push(91, 104);
+	try deltas.push(378, 415);
 
 	const delta_interval = deltas.mergeIntervals();
 
@@ -277,25 +254,25 @@ test "DeltaManager merge intervals"
 		.{ delta_interval.start, delta_interval.end });
 }
 
-test "DeltaManager preheated reset"
+test "DeltaStack preheated reset"
 {
-	var deltas = DeltaManager.init(std.testing.allocator, .{});
+	var deltas = DeltaStack.init(std.testing.allocator, .{});
 	defer deltas.deinit();
 
 	const cap_at_init = deltas.pool.arena.queryCapacity();
 
 	try std.testing.expect(cap_at_init == 0);
 
-	try deltas.do(0, 10);
-	try deltas.do(3, 11);
-	try deltas.do(2, 5);
-	try deltas.do(9, 27);
-	try deltas.do(403, 643);
-	try deltas.do(51, 89);
-	try deltas.do(1, 42);
-	try deltas.do(103, 210);
-	try deltas.do(91, 104);
-	try deltas.do(378, 415);
+	try deltas.push(0, 10);
+	try deltas.push(3, 11);
+	try deltas.push(2, 5);
+	try deltas.push(9, 27);
+	try deltas.push(403, 643);
+	try deltas.push(51, 89);
+	try deltas.push(1, 42);
+	try deltas.push(103, 210);
+	try deltas.push(91, 104);
+	try deltas.push(378, 415);
 
 	const cap_before_reset = deltas.pool.arena.queryCapacity();
 
@@ -305,10 +282,10 @@ test "DeltaManager preheated reset"
 
 	try std.testing.expect(cap_before_reset == cap_after_reset);
 
-	try deltas.do(45, 123);
-	try deltas.do(0, 12);
-	try deltas.do(2, 67);
-	try deltas.do(90, 141);
+	try deltas.push(45, 123);
+	try deltas.push(0, 12);
+	try deltas.push(2, 67);
+	try deltas.push(90, 141);
 
 	const cap_after_inserts = deltas.pool.arena.queryCapacity();
 
