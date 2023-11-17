@@ -5,15 +5,6 @@ const Allocator = std.mem.Allocator;
 const File = std.fs.File;
 
 
-pub const LimitError = std.os.SetrlimitError || std.os.GetrlimitError;
-pub fn setDataLimit(limit: std.os.rlim_t) LimitError!void
-{
-	const old_limit = try std.os.getrlimit(.DATA);
-	const new_limit = std.os.rlimit { .cur = limit, .max = old_limit.max };
-
-	try std.os.setrlimit(.DATA, new_limit);
-}
-
 
 pub const LoadError = Allocator.Error || std.fs.File.SeekError || std.io.AnyReader.Error || error
 {

@@ -49,18 +49,16 @@ const MapCounter = switch (builtin.mode) {
 const SectionMap = switch (target_os) {
 	.windows => struct {
 		slc: []u8,
+		offset: u64,
 		deltas: diff.DeltaStack,
 
 		/// Just don't.
 		DO_NOT_TOUCH_windows_orig_slc: []align(page_size) u8,
-		DO_NOT_TOUCH_windows_slc_offset: u64, // Is this necessary? TODO
-
-		comptime {
-			@compileError("TODO: Implement this esp. the do not touch part");
-		}
+		// DO_NOT_TOUCH_windows_slc_offset: u64, // Is this necessary? TODO
 	},
 	else => struct {
 		slc: []align(page_size) u8,
+		offset: u64,
 		deltas: diff.DeltaStack,
 	},
 };
@@ -86,9 +84,9 @@ pub const FileMapper = switch (target_os) {
 			// init
 			|| windows.GetFileSizeError || std.fmt.AllocPrintError || windows.CreateFileMappingError
 			// map
-			|| windows.MapViewOfFileError
-			// unmap
-			|| windows.UnmapViewOfFileError;
+			|| windows.MapViewOfFileError || diff.DeltaStack.Error
+			// apply
+			|| os.FlockError || os.PWriteError || error { UnknownWriteError };
 
 
 		pub fn init(allocator: Allocator, handle: Handle) Error!Self {
@@ -196,10 +194,11 @@ pub const FileMapper = switch (target_os) {
 
 			return .{
 				.slc = orig_slc[slc_offset..orig_slc.len],
+				.offset = offset,
 				.deltas = deltas,
 
 				.DO_NOT_TOUCH_windows_orig_slc = @alignCast(orig_slc),
-				.DO_NOT_TOUCH_windows_slc_offset = slc_offset,
+				// .DO_NOT_TOUCH_windows_slc_offset = slc_offset,
 			};
 		}
 
@@ -211,9 +210,35 @@ pub const FileMapper = switch (target_os) {
 			self.map_counter.sub(1);
 		}
 
-		pub fn apply(self: *Self) Error!void {
-			_ = self;
-			@compileError("TODO: implement apply");
+		pub fn apply(self: *Self, section: SectionMap) Error!void {
+			_ = section.deltas.mergeIntervals();
+
+			try os.flock(self.handle, os.LOCK.EX); // ???
+
+			var current = section.deltas.list.first;
+			while (current != null) : (current = current.next) {
+				const current_slc = section.slc[current.start..current.end];
+
+				var written_byte_count = try os.pwrite(
+					self.handle,
+					current_slc,
+					section.offset + current.start,
+				);
+
+				// Check if partial write occured and retry max 5 times if yes
+				if (written_byte_count != current_slc.len) {
+					for (0..5) |_| {
+						written_byte_count += try os.pwrite(
+							self.handle,
+							current_slc[written_byte_count..current_slc.len], 
+							section.offset + current.start + written_byte_count,
+						);
+						if (written_byte_count == current_slc.len) break;
+					} else return Error.UnknownWriteError;
+				}
+			}
+
+			try os.flock(self.handle, os.LOCK.UN);
 		}
 	},
 	else => struct {
@@ -230,8 +255,9 @@ pub const FileMapper = switch (target_os) {
 			// init
 			|| os.FStatError
 			// map
-			|| os.MMapError;
-			// unmap
+			|| os.MMapError || diff.DeltaStack.Error
+			// apply
+			|| os.FlockError || os.PWriteError || error { UnknownWriteError };
 
 
 		pub fn init(allocator: Allocator, handle: Handle) Error!Self {
@@ -259,8 +285,9 @@ pub const FileMapper = switch (target_os) {
 		pub fn map(self: *Self, options: Options) Error!SectionMap {
 			assert(options.from < options.to orelse self.size);
 
+			const offset = options.from;
+
 			const slc = blk: {
-				const offset = options.from;
 				const length = (options.to orelse self.size) - options.from;
 
 				break :blk try os.mmap(
@@ -279,11 +306,11 @@ pub const FileMapper = switch (target_os) {
 
 			return .{
 				.slc = slc,
+				.offset = offset,
 				.deltas = deltas,
 			};
 		}
 
-		/// This has to recieve the exact slice returned by map().
 		pub fn unmap(self: *Self, section: SectionMap) void {
 			os.munmap(section.slc);
 			section.deltas.deinit();
@@ -291,9 +318,35 @@ pub const FileMapper = switch (target_os) {
 			self.map_counter.sub();
 		}
 
-		pub fn apply(self: *Self) Error!void {
-			try os.flock(self.fd, os.LOCK.EX); // ???
-			@compileError("TODO: implement apply");
+		pub fn apply(self: *Self, section: SectionMap) Error!void {
+			_ = section.deltas.mergeIntervals();
+
+			try os.flock(self.handle, os.LOCK.EX); // ???
+
+			var current = section.deltas.list.first;
+			while (current != null) : (current = current.next) {
+				const current_slc = section.slc[current.start..current.end];
+
+				var written_byte_count = try os.pwrite(
+					self.handle,
+					current_slc,
+					section.offset + current.start,
+				);
+
+				// Check if partial write occured and retry max 5 times if yes
+				if (written_byte_count != current_slc.len) {
+					for (0..5) |_| {
+						written_byte_count += try os.pwrite(
+							self.handle,
+							current_slc[written_byte_count..current_slc.len], 
+							section.offset + current.start + written_byte_count,
+						);
+						if (written_byte_count == current_slc.len) break;
+					} else return Error.UnknownWriteError;
+				}
+			}
+
+			try os.flock(self.handle, os.LOCK.UN);
 		}
 	},
 };
