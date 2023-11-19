@@ -1,15 +1,17 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const os = std.os;
+
 const Allocator = std.mem.Allocator;
 
 const c = @import("c.zig");
 const convert = @import("convert.zig");
 
-pub inline fn getPID() u32 {
-	return @as(u32, switch (builtin.os.tag) {
-		.windows => std.os.windows.kernel32.GetCurrentProcessId(),
-		.linux => @max(std.os.linux.getpid(), 0),
-		else => @max(c.getpid(), 0), // replace as soon as implemented in zig
+pub inline fn getPID() os.pid_t {
+	return @as(os.pid_t, switch (builtin.os.tag) {
+		.windows => os.windows.kernel32.GetCurrentProcessId(),
+		.linux => os.linux.getpid(),
+		else => c.getpid(), // replace as soon as implemented in zig
 	});
 }
 

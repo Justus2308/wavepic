@@ -4,10 +4,10 @@ const File = std.fs.File;
 
 const assert = std.debug.assert;
 
-const convert = @import("convert.zig");
+const convert = @import("../convert.zig");
 const Fmt = convert.Fmt;
 
-const c = @import("c.zig");
+const c = @import("../c.zig");
 
 
 /// Delta interval, start and end must be
@@ -39,7 +39,6 @@ pub const DeltaStack = struct {
 
 	merge_threshold: u64,
 
-	const Self = @This();
 	pub const Error = error {
 		OutOfMemory, // for memory pool
 	};
@@ -48,7 +47,7 @@ pub const DeltaStack = struct {
 		/// max distance between deltas to merge, in bytes
 		merge_threshold: u64 = 256,
 	};
-	pub fn init(allocator: Allocator, options: Options) Self {
+	pub fn init(allocator: Allocator, options: Options) DeltaStack {
 		var pool = Pool.init(allocator);
 
 		return .{
@@ -63,7 +62,7 @@ pub const DeltaStack = struct {
 	/// Will clear all deltas and all cached undo/redo steps.
 	/// Half of the already allocated memory will be retained
 	/// with a soft minimum of the size of 256 Nodes.
-	pub fn resetHard(self: *Self) void {
+	pub fn resetHard(self: *DeltaStack) void {
 		// self.pool.reset(); // use this as soon as it's properly implemented
 		const half_cap = self.pool.arena.queryCapacity() >> 1;
 		const limit = @max(256 * @sizeOf(List.Node), half_cap);
@@ -75,11 +74,11 @@ pub const DeltaStack = struct {
 
 	/// Will clear all deltas but keep all cached undo/redo steps.
 	/// All allocated memory will be retained. TODO: change this
-	pub fn resetDeltas(self: *Self) void {
+	pub fn resetDeltas(self: *DeltaStack) void {
 		_ = self;
 	}
 
-	pub fn deinit(self: *Self) void {
+	pub fn deinit(self: *DeltaStack) void {
 		self.pool.deinit();
 		self.* = undefined;
 	}
@@ -89,7 +88,7 @@ pub const DeltaStack = struct {
 	/// as unchecked in releaseFast and releaseSmall mode.
 	/// Potential error is OutOfMemory, the pool will still
 	/// be intact and remain unchanged if this error occurs.
-	pub fn push(self: *Self, start: u64, end: u64) Error!void {
+	pub fn push(self: *DeltaStack, start: u64, end: u64) Error!void {
 		assert(start < end);
 
 		var node = try self.pool.create();
@@ -103,13 +102,13 @@ pub const DeltaStack = struct {
 	/// is a noop right now.
 	/// TODO: make undos possible after applying deltas by adding them
 	/// as new deltas
-	pub fn pop(self: *Self) void {
+	pub fn pop(self: *DeltaStack) void {
 		const node = self.list.popFirst() orelse return;
 		self.pool.destroy(node);
 	}
 
 	/// Returns a delta whose interval contains all other deltas
-	pub fn mergeIntervals(self: *Self) Delta {
+	pub fn mergeIntervals(self: *DeltaStack) Delta {
 		var head = self.list.first;
 		head = mergeSort(head);
 
@@ -177,7 +176,7 @@ pub const DeltaStack = struct {
 	}
 
 
-	pub fn dump(self: *Self) void {
+	pub fn dump(self: *DeltaStack) void {
 		std.debug.print("DeltaManager dump:\n", .{});
 		
 		var node = self.list.first;

@@ -3,10 +3,10 @@ const Allocator = std.mem.Allocator;
 
 const assert = std.debug.assert;
 
-const convert = @import("convert.zig");
+const convert = @import("../convert.zig");
 const Fmt = convert.Fmt;
 
-const c = @import("c.zig");
+const c = @import("../c.zig");
 
 const diff = @import("diff.zig");
 const DeltaStack = diff.DeltaStack;
