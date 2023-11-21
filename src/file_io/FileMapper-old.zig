@@ -11,15 +11,12 @@ const Handle = os.fd_t;
 
 const assert = std.debug.assert;
 
-const windows = struct {
-	usingnamespace os.windows;
-	usingnamespace @import("../windows_extra.zig");
-};
+const windows = @import("../windows.zig");
 const diff = @import("diff.zig");
 const debug_util = @import("../debug_util.zig");
 
 
-const FileMapper = @This();
+const FileMap = @This();
 
 
 allocator: Allocator,

@@ -1,5 +1,7 @@
 const windows = @import("std").os.windows;
 
+pub usingnamespace windows.kernel32;
+
 const WINAPI = windows.WINAPI;
 const HANDLE = windows.HANDLE;
 const SECURITY_ATTRIBUTES = windows.SECURITY_ATTRIBUTES;

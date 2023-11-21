@@ -121,4 +121,3 @@ test "Compress/Decompress" {
 	try std.testing.expect(decompressed.len == data.len);
 	try std.testing.expectEqualSlices(u8, data, decompressed);
 }
-

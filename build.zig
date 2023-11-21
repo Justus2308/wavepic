@@ -49,6 +49,7 @@ pub fn build(b: *std.Build) void
 	const vkzig_bindings = vkzig_dep.module("vulkan-zig");
 	exe.addModule("vulkan-zig", vkzig_bindings);
 
+
 	// This declares intent for the executable to be installed into the
 	// standard location when the user invokes the "install" step (the default
 	// step when running `zig build`).
@@ -87,6 +88,7 @@ pub fn build(b: *std.Build) void
 
 	dynLinkDeps(unit_tests);
 	unit_tests.linkLibC();
+
 
 	const run_unit_tests = b.addRunArtifact(unit_tests);
 

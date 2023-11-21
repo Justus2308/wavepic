@@ -1,8 +1,9 @@
 const std = @import("std");
-const windows = std.os.windows;
-const kernel32 = windows.kernel32;
 
-pub const kernel32_extra = @import("windows_extra/kernel32_extra.zig");
+pub usingnamespace std.os.windows;
+const windows = @This();
+
+pub const kernel32 = @import("windows/kernel32.zig");
 
 const HANDLE = windows.HANDLE;
 const SECURITY_ATTRIBUTES = windows.SECURITY_ATTRIBUTES;
@@ -13,6 +14,12 @@ const LPCSTR = windows.LPCSTR;
 const LPVOID = windows.LPVOID;
 const LPCVOID = windows.LPCVOID;
 const SIZE_T = windows.SIZE_T;
+
+
+
+pub const EXCEPTION_CONTINUE_EXECUTION = -1;
+pub const EXCEPTION_IN_PAGE_ERROR = 0xC0000006;
+
 
 
 pub const CreateFileMappingError = std.os.UnexpectedError || error {
@@ -28,7 +35,7 @@ pub fn CreateFileMapping(
 	dwMaximumSizeLow: DWORD,
 	lpName: ?LPCSTR,
 ) CreateFileMappingError!HANDLE {
-	if (kernel32_extra.CreateFileMappingA(
+	if (kernel32.CreateFileMappingA(
 		hfile,
 		lpFileMappingAttributes,
 		flProtect,
@@ -69,7 +76,7 @@ pub fn MapViewOfFile(
 	dwFileOffsetLow: DWORD,
 	dwNumberOfBytesToMap: SIZE_T,
 ) MapViewOfFileError![]u8 {
-	if (kernel32_extra.MapViewOfFile(
+	if (kernel32.MapViewOfFile(
 		hFileMappingObject,
 		dwDesiredAccess,
 		dwFileOffsetHigh,
@@ -90,7 +97,7 @@ pub fn FlushViewOfFile(
 	lpBaseAddress: LPCVOID,
 	dwNumberOfBytesToFlush: SIZE_T,
 ) UnmapViewOfFileError!void {
-	if (kernel32_extra.FlushViewOfFile(
+	if (kernel32.FlushViewOfFile(
 		lpBaseAddress,
 		dwNumberOfBytesToFlush,
 	) == FALSE) {
@@ -105,7 +112,7 @@ pub const UnmapViewOfFileError = std.os.UnexpectedError;
 pub fn UnmapViewOfFile(
 	lpBaseAddress: LPCVOID,
 ) UnmapViewOfFileError!void {
-	if (kernel32_extra.UnmapViewOfFile(
+	if (kernel32.UnmapViewOfFile(
 		lpBaseAddress,
 	) == FALSE) {
 		const err = kernel32.GetLastError();
