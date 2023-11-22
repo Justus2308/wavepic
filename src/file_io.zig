@@ -27,7 +27,7 @@ pub fn addMapping(allocator: Allocator, map: *FileMap) Allocator.Error!void {
 pub fn removeMapping(allocator: Allocator, map: *FileMap) void {
 	var node = map_list.first;
 	const rem = while (node != null) : (node = node.?.next) {
-		if (node.?.data.slc.ptr == map.slc.ptr) break node;
+		if (node.?.data == map) break node;
 	} else return;
 
 	map_list.remove(rem.?);

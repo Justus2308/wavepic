@@ -113,8 +113,7 @@ test "Handle SIGBUS from mapped memory" {
 	const aligned_kill_addr = kill_addr & (~(@as(usize, std.mem.page_size) - 1));
 
 	var map = FileMap {
-		.slc = @alignCast(@as([*]u8, @ptrFromInt(aligned_kill_addr))[0..1]),
-		.size = 0xFFFFFFFF,
+		.slc = @alignCast(@as([*]u8, @ptrFromInt(aligned_kill_addr))[0..0xFFFFFFFF]),
 		.windows_map_handle = {},
 	};
 
