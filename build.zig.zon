@@ -12,10 +12,10 @@
 		// 	.url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/374f9fd97520f6dd1b80745de09208d878ab4a52.tar.gz",
 		// 	.hash = "1220961d2dfc2fcf22b7f35afced1cb62fb13c3d2372e6211cc6396d33e4170dca76",
 		// },
-		.vulkan_zig = .{
-			.url = "https://github.com/Snektron/vulkan-zig/archive/1e4e90ffb14084357265d79b58e5f1b1c9396069.tar.gz",
-			.hash = "1220d3e1254af9c8fd4c3f09bd9f50f51dc5eaa5506f845ed67bcd75e1e2961ce1ea",
-		},
+		// .vulkan_zig = .{
+		// 	.url = "https://github.com/Snektron/vulkan-zig/archive/1e4e90ffb14084357265d79b58e5f1b1c9396069.tar.gz",
+		// 	.hash = "1220d3e1254af9c8fd4c3f09bd9f50f51dc5eaa5506f845ed67bcd75e1e2961ce1ea",
+		// },
 	},
 
 	.paths = .{

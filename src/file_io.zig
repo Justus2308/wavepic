@@ -14,13 +14,13 @@ const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
 /// This needs to be static otherwise the signal/exception handler can't access it
-var map_list = std.DoublyLinkedList(FileMap) {};
+var map_list = std.SinglyLinkedList(*FileMap) {};
 
-pub fn addMapping(allocator: Allocator, map: FileMap) Allocator.Error!void {
+pub fn addMapping(allocator: Allocator, map: *FileMap) Allocator.Error!void {
 	var node = try allocator.create(@TypeOf(map_list).Node);
-	node.* = .{ .data = map };
+	node.data = map;
 
-	map_list.append(node);
+	map_list.prepend(node);
 }
 
 /// Allocator has to be the same the mapping has been added with.
@@ -36,7 +36,7 @@ pub fn removeMapping(allocator: Allocator, map: *FileMap) void {
 
 pub fn checkIfMapped(ptr: *anyopaque) ?*FileMap {
 	var node = map_list.first;
-	while (node != null) : (node = node.?.next) {
-		if (node.?.data.contains(ptr)) return &node.?.data;
-	} else return null;
+	return while (node != null) : (node = node.?.next) {
+		if (node.?.data.contains(ptr)) break node.?.data;
+	} else null;
 }

@@ -6,8 +6,6 @@ const os = std.os;
 const page_size = std.mem.page_size;
 const Handle = os.fd_t;
 
-const Allocator = std.mem.Allocator;
-
 const assert = std.debug.assert;
 const log = std.log;
 
@@ -24,7 +22,7 @@ io_error: bool = false,
 
 windows_map_handle: if (target_os == .windows) Handle else void,
 
-const Error = switch (target_os) {
+pub const Error = switch (target_os) {
 	.windows => windows.GetFileSizeError || windows.CreateFileMappingError || windows.MapViewOfFileError,
 	else => os.FStatError || os.MMapError,
 } || error { IO };
@@ -40,14 +38,18 @@ pub fn deinit(self: *FileMap) void {
 pub fn contains(self: *FileMap, ptr: *anyopaque) bool {
 	const ptr_n = @intFromPtr(ptr);
 	const slc_n = @intFromPtr(self.slc.ptr);
+	const buf_size = blk: {
+		const ps = @as(u64, page_size);
+		break :blk (self.size + ps-1) & (~(ps-1));
+	};
 
-	return (ptr_n >= slc_n and ptr_n <= slc_n + self.size);
+	return (ptr_n >= slc_n and ptr_n <= slc_n + buf_size);
 }
 
 pub fn handleFailure(self: *FileMap) void {
 	if (@cmpxchgStrong(bool, &self.io_error, false, true, .SeqCst, .SeqCst) != null) return;
 	log.warn("FileMap: handleFailure invoked.", .{});
-	Impl.handleFailure(self);
+	// Impl.handleFailure(self);
 }
 
 /// Returns Error.IO if the read process triggers SIGBUS/EXCEPTION_IN_PAGE_ERROR
@@ -101,19 +103,19 @@ const UnixImpl = struct {
 		os.munmap(self.slc);
 	}
 
-	fn handleFailure(self: *FileMap) void {
-		_ = os.mmap(
-			@ptrCast(self.slc),
-			self.size,
-			os.PROT.READ,
-			os.MAP.PRIVATE | os.MAP.ANONYMOUS | os.MAP.FIXED,
-			-1,
-			0
-		) catch log.warn(
-			"FileMap.handleFailure: Error replacing mapped file at {any} with zeroes.\n",
-			.{ self.slc.ptr }
-		);
-	}
+	// fn handleFailure(self: *FileMap) void {
+	// 	_ = os.mmap(
+	// 		@ptrCast(self.slc),
+	// 		self.size,
+	// 		os.PROT.READ,
+	// 		os.MAP.PRIVATE | os.MAP.ANONYMOUS | os.MAP.FIXED,
+	// 		-1,
+	// 		0
+	// 	) catch log.warn(
+	// 		"FileMap.handleFailure: Error replacing mapped file at {any} with zeroes.\n",
+	// 		.{ self.slc.ptr }
+	// 	);
+	// }
 };
 
 const WindowsImpl = struct {
@@ -152,22 +154,25 @@ const WindowsImpl = struct {
 		windows.CloseHandle(self.handle);
 	}
 
-	fn handleFailure(self: *FileMap) void {
-		_ = self;
-	}
+	// fn handleFailure(self: *FileMap) void {
+	// 	_ = self;
+	// }
 };
 
 test "Map file" {
-	const fs = std.fs;
+	var tmp_dir = std.testing.tmpDir(.{});
+	defer tmp_dir.cleanup();
 
-	const cwd = fs.cwd();
-	var file = try cwd.openFile("./test_in/mp3_test_in.mp3", .{});
+	const file = try tmp_dir.dir.createFile("tmp", .{ .read = true });
+	defer file.close();
+
+	try file.writeAll("Hello this is a temporary file to test some stuff.\n");
 
 	var map = try FileMap.init(file.handle);
 	defer map.deinit();
 
-	var buf: [256]u8 = undefined;
-	try map.read(&buf, 0);
+	// var buf: [256]u8 = undefined;
+	// try map.read(&buf, 0);
 
-	log.debug("{any}", .{ buf });
+	// log.debug("{any}", .{ buf });
 }

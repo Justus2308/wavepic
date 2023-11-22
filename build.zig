@@ -19,9 +19,9 @@ pub fn build(b: *std.Build) void
 
 	// dependencies
 
-	const vkzig_dep = b.dependency("vulkan_zig", .{
-		.registry = @as([]const u8, b.pathFromRoot("./vk.xml")),
-	});
+	// const vkzig_dep = b.dependency("vulkan_zig", .{
+	// 	.registry = @as([]const u8, b.pathFromRoot("./vk.xml")),
+	// });
 
 
 	// main executable
@@ -46,8 +46,8 @@ pub fn build(b: *std.Build) void
 
 	// Vulkan bindings
 
-	const vkzig_bindings = vkzig_dep.module("vulkan-zig");
-	exe.addModule("vulkan-zig", vkzig_bindings);
+	// const vkzig_bindings = vkzig_dep.module("vulkan-zig");
+	// exe.addModule("vulkan-zig", vkzig_bindings);
 
 
 	// This declares intent for the executable to be installed into the

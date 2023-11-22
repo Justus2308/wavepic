@@ -15,6 +15,12 @@ pub inline fn getPID() os.pid_t {
 	});
 }
 
+/// Always skips a test without the compiler complaining about unreachable code.
+pub inline fn alwaysSkipTest() !void {
+	return error.SkipZigTest;
+}
+
+
 pub const ExecError = std.process.Child.RunError || error {
 	WrongExitCode,
 	Stderr,

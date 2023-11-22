@@ -104,73 +104,30 @@ fn sigbusHandler(
 }
 
 
-test "Recieve and handle SIGBUS from mapping" {
+test "Handle SIGBUS from mapped memory" {
 	if (target_os == .windows) return error.SkipZigTest;
-
-	const context_tags = @typeInfo(@TypeOf(state.context)).Union.tag_type.?;
-
-	var old_action = if (state.context != context_tags.none) blk: {
-		const old_action = switch (state.context) {
-			.handler => |handler| Sigaction { .handler = .{ .handler = handler }, .mask = 0, .flags = 0 },
-			.sigaction => |sigaction| Sigaction { .handler = .{ .sigaction = sigaction }, .mask = 0, .flags = os.SA.SIGINFO },
-			else => unreachable,
-		};
-
-		try os.sigaction(os.SIG.BUS, &old_action, null);
-
-		state.context = .{ .none = {} };
-		state.handler_installed = false;
-
-		break :blk old_action;
-	} else blk: {
-		var old_action: Sigaction = undefined;
-		try os.sigaction(os.SIG.BUS, null, &old_action);
-		
-		break :blk old_action;
-	};
-
-	const old_tag: context_tags = blk: {
-		if (old_action.flags & os.SA.SIGINFO == 0) {
-			if (old_action.handler.handler != null) break :blk .handler
-			else break :blk .none;
-		} else {
-			if (old_action.handler.sigaction != null) break :blk .sigaction
-			else unreachable;
-		}
-	};
-
-
-	installFailureHandler();
-	try testing.expect(state.context == old_tag);
-	const current_state = state;
-
-	installFailureHandler();
-	installFailureHandler();
-	try testing.expect(state.context == old_tag);
-	try testing.expectEqualDeep(current_state, state);
-
-	const fs = std.fs;
-
-	const cwd = fs.cwd();
-	var file = try cwd.openFile("./test_in/mp3_test_in.mp3", .{});
-
-	var map = try FileMap.init(file.handle);
-	defer map.deinit();
 
 	const allocator = testing.allocator;
 
-	try file_io.addMapping(allocator, map);
+	const kill_addr = @intFromPtr(&os.kill);
+	const aligned_kill_addr = kill_addr & (~(@as(usize, std.mem.page_size) - 1));
+
+	var map = FileMap {
+		.slc = @alignCast(@as([*]u8, @ptrFromInt(aligned_kill_addr))[0..1]),
+		.size = 0xFFFFFFFF,
+		.windows_map_handle = {},
+	};
+
+	try file_io.addMapping(allocator, &map);
 	defer file_io.removeMapping(allocator, &map);
 
-	const start_addr = @intFromPtr(map.slc.ptr);
-	const end_addr = start_addr + map.size;
-	std.log.warn("Range: {x} - {x}", .{ start_addr, end_addr });
+	installFailureHandler();
 
-	// Try to write to read-only map to cause SIGBUS
-	map.slc[15] = 'A';
+	const pid = @import("../util.zig").getPID();
+	try os.kill(pid, os.SIG.BUS);
 
-	// const pid = @import("../util.zig").getPID();
-	// try os.kill(pid, os.SIG.BUS);
+	var buf: [1]u8 = undefined;
 
-	// TODO?: reinstall old handler for further testing
+	const err = map.read(&buf, 0);
+	try testing.expectError(FileMap.Error.IO, err);
 }

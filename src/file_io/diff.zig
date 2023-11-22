@@ -48,7 +48,7 @@ pub const DeltaStack = struct {
 		merge_threshold: u64 = 256,
 	};
 	pub fn init(allocator: Allocator, options: Options) DeltaStack {
-		var pool = Pool.init(allocator);
+		const pool = Pool.init(allocator);
 
 		return .{
 			.allocator = allocator,
