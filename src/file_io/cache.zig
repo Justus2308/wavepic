@@ -8,9 +8,8 @@ const Fmt = convert.Fmt;
 
 const c = @import("../c.zig");
 
-const diff = @import("diff.zig");
-const DeltaStack = diff.DeltaStack;
-const Delta = diff.Delta;
+const file_io = @import("../file_io.zig");
+const DeltaStack = file_io.DeltaStack;
 
 
 // LZ4 compression stuff
@@ -18,18 +17,18 @@ const LZ4Error = error {
 	CompressionFailed,
 	DecompressionFailed
 };
-/// dst needs to be preallocated by the caller.
-/// To be safe it should be at least compressBound(src.len) bytes long.
-/// Returns number of bytes written to dst.
+/// `dst` needs to be preallocated by the caller.
+/// To be safe it should be at least `compressBound(src.len)` bytes long.
+/// Returns number of bytes written to `dst`.
 inline fn compress(src: []const u8, dst: []u8) LZ4Error!usize {
 	const written = c.LZ4_compress_fast(
 		@ptrCast(src), @ptrCast(dst),
 		@intCast(src.len), @intCast(dst.len), 1);
 	return if (written <= 0) LZ4Error.CompressionFailed else @max(written, 0);
 }
-/// dst needs to be preallocated by the caller.
-/// To be safe it should be at least decompressBound(src.len) bytes long.
-/// Returns number of bytes written to dst.
+/// `dst` needs to be preallocated by the caller.
+/// To be safe it should be at least `decompressBound(src.len)` bytes long.
+/// Returns number of bytes written to `dst`.
 inline fn decompress(src: []const u8, dst: []u8) LZ4Error!usize {
 	const written = c.LZ4_decompress_safe(
 		@ptrCast(src), @ptrCast(dst),
@@ -59,7 +58,7 @@ pub const CacheFile = struct {
 	orig_size: ?u64, // if this is null, the file is uncompressed
 };
 
-/// Holds a past file state and a DeltaList to hold succeeding changes
+/// Holds a past file state and a `DeltaStack` to hold succeeding changes
 pub const CacheStep = struct {
 	img: CacheFile,
 	deltas: DeltaStack,

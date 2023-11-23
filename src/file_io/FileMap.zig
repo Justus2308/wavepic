@@ -4,10 +4,14 @@ const std = @import("std");
 const os = std.os;
 
 const page_size = std.mem.page_size;
-const Handle = os.fd_t;
 
 const assert = std.debug.assert;
 const log = std.log;
+
+const Allocator = std.mem.Allocator;
+const Handle = os.fd_t;
+
+const file_io = @import("../file_io.zig");
 
 const windows = @import("../windows.zig");
 const failure = @import("failure.zig");
@@ -15,6 +19,10 @@ const failure = @import("failure.zig");
 
 pub const FileMap = @This();
 
+
+allocator: Allocator,
+
+handle: Handle,
 slc: []align(page_size) u8,
 
 io_error: bool = false,
@@ -26,8 +34,8 @@ pub const Error = switch (target_os) {
 	else => os.FStatError || os.MMapError,
 } || error { IO };
 
-pub fn init(handle: Handle) Error!FileMap {
-	return Impl.init(handle);
+pub fn init(allocator: Allocator, handle: Handle) Error!*FileMap {
+	return Impl.init(allocator, handle);
 }
 
 pub fn deinit(self: *FileMap) void {
@@ -50,10 +58,10 @@ pub fn handleFailure(self: *FileMap) void {
 	log.warn("FileMap: handleFailure invoked.", .{});
 }
 
-/// Returns Error.IO if the read process triggers SIGBUS/EXCEPTION_IN_PAGE_ERROR
-/// or the io_error flag of this FileMap is already set.
-/// Whether the offset is valid is only checked in Debug/ReleaseSafe mode.
-/// dest should be outside of the mapping to be read from as they may not overlap.
+/// Returns `Error.IO` if the read process triggers `SIGBUS`/`EXCEPTION_IN_PAGE_ERROR`
+/// or the `io_error` flag of this `FileMap` is already set.
+/// Whether `offset` is valid is only checked in Debug and ReleaseSafe modes.
+/// `dest` should be outside of the mapping to be read from as they may not overlap.
 pub fn read(self: *FileMap, dest: []u8, offset: u64) Error!void {
 	if (self.io_error) return Error.IO;
 
@@ -65,6 +73,10 @@ pub fn read(self: *FileMap, dest: []u8, offset: u64) Error!void {
 	if (self.io_error) return Error.IO;
 }
 
+pub fn write(self: *FileMap, src: []u8, offset: u64) Error!void {
+	
+}
+
 
 const Impl = switch (target_os) {
 	.windows => WindowsImpl,
@@ -72,7 +84,7 @@ const Impl = switch (target_os) {
 };
 
 const UnixImpl = struct {
-	fn init(handle: Handle) Error!FileMap {
+	fn init(allocator: Allocator, handle: Handle) Error!*FileMap {
 		failure.installFailureHandler();
 
 		const size = blk: {
@@ -88,20 +100,32 @@ const UnixImpl = struct {
 			handle,
 			0,
 		);
+		errdefer os.munmap(slc);
 
-		return .{
+		const file_map = try allocator.create(FileMap);
+		errdefer allocator.destroy(file_map);
+		file_map.* = .{
+			.allocator = allocator,
+			.handle = handle,
 			.slc = slc[0..size],
 			.windows_map_handle = {},
 		};
+
+		try file_io.addMapping(file_map);
+
+		return file_map;
 	}
 
 	fn deinit(self: *FileMap) void {
 		os.munmap(self.slc);
+
+		file_io.removeMapping(self);
+		self.allocator.destroy(self);
 	}
 };
 
 const WindowsImpl = struct {
-	fn init(handle: Handle) Error!FileMap {
+	fn init(allocator: Allocator, handle: Handle) Error!*FileMap {
 		failure.installFailureHandler();
 
 		const size = try windows.GetFileSizeEx(handle);
@@ -114,6 +138,7 @@ const WindowsImpl = struct {
 			0,
 			null,
 		);
+		errdefer windows.CloseHandle(map_handle);
 
 		const slc = try windows.MapViewOfFile(
 			map_handle,
@@ -122,16 +147,28 @@ const WindowsImpl = struct {
 			0,
 			0,
 		);
+		errdefer windows.UnmapViewOfFile(slc) catch unreachable;
 
-		return .{
-			.slc = slc[0..size],
+		const file_map = try allocator.create(FileMap);
+		errdefer allocator.destroy(file_map);
+		file_map.* = .{
+			.allocator = allocator,
+			.handle = handle,
+			.slc = @alignCast(slc[0..size]),
 			.windows_map_handle = map_handle,
 		};
+
+		try file_io.addMapping(file_map);
+
+		return file_map;
 	}
 
 	fn deinit(self: *FileMap) void {
-		windows.UnmapViewOfFile(self.slc) orelse unreachable;
+		windows.UnmapViewOfFile(self.slc) catch unreachable;
 		windows.CloseHandle(self.handle);
+
+		file_io.removeMapping(self);
+		self.allocator.destroy(self);
 	}
 };
 
@@ -142,11 +179,13 @@ test "Map file" {
 	const file = try tmp_dir.dir.createFile("tmp", .{ .read = true });
 	defer file.close();
 
-	const str = "Hello this is a temporary file to test some stuff.\n";
+	const str = "Map file test.\n";
 
 	try file.writeAll(str);
 
-	var map = try FileMap.init(file.handle);
+	const allocator = std.testing.allocator;
+
+	var map = try FileMap.init(allocator, file.handle);
 	defer map.deinit();
 
 	var buf: [str.len]u8 = undefined;

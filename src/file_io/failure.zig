@@ -110,15 +110,17 @@ test "Handle SIGBUS from mapped memory" {
 	const allocator = testing.allocator;
 
 	const kill_addr = @intFromPtr(&os.kill);
-	const aligned_kill_addr = kill_addr & (~(@as(usize, std.mem.page_size) - 1));
+	const aligned_kill_addr = std.mem.alignBackward(usize, kill_addr, @as(usize, std.mem.page_size));
 
-	var map = FileMap {
+	var file_map = FileMap {
+		.allocator = allocator,
+		.handle = 0,
 		.slc = @alignCast(@as([*]u8, @ptrFromInt(aligned_kill_addr))[0..0xFFFFFFFF]),
 		.windows_map_handle = {},
 	};
 
-	try file_io.addMapping(allocator, &map);
-	defer file_io.removeMapping(allocator, &map);
+	try file_io.addMapping(&file_map);
+	defer file_io.removeMapping(&file_map);
 
 	installFailureHandler();
 
@@ -127,6 +129,6 @@ test "Handle SIGBUS from mapped memory" {
 
 	var buf: [1]u8 = undefined;
 
-	const err = map.read(&buf, 0);
+	const err = file_map.read(&buf, 0);
 	try testing.expectError(FileMap.Error.IO, err);
 }
