@@ -2,22 +2,29 @@ const builtin = @import("builtin");
 const target_os = builtin.os.tag;
 const std = @import("std");
 const os = std.os;
+const testing = std.testing;
 
 const page_size = std.mem.page_size;
 
 const assert = std.debug.assert;
-const log = std.log;
 
 const Allocator = std.mem.Allocator;
 const Handle = os.fd_t;
 
 const file_io = @import("../file_io.zig");
+const failure = file_io.failure;
+
+const log = file_io.log;
 
 const windows = @import("../windows.zig");
-const failure = @import("failure.zig");
 
 
 pub const FileMap = @This();
+
+const Impl = switch (target_os) {
+	.windows => WindowsImpl,
+	else => UnixImpl,
+};
 
 
 allocator: Allocator,
@@ -29,10 +36,12 @@ io_error: bool = false,
 
 windows_map_handle: if (target_os == .windows) Handle else void,
 
-pub const Error = switch (target_os) {
-	.windows => windows.GetFileSizeError || windows.CreateFileMappingError || windows.MapViewOfFileError,
-	else => os.FStatError || os.MMapError,
-} || error { IO };
+
+pub const Error = Allocator.Error || os.PWriteError || error {
+	IO,
+	UnknownWriteError,
+} || Impl.ImplError;
+
 
 pub fn init(allocator: Allocator, handle: Handle) Error!*FileMap {
 	return Impl.init(allocator, handle);
@@ -74,16 +83,13 @@ pub fn read(self: *FileMap, dest: []u8, offset: u64) Error!void {
 }
 
 pub fn write(self: *FileMap, src: []u8, offset: u64) Error!void {
-	
+	return Impl.write(self, src, offset);
 }
 
 
-const Impl = switch (target_os) {
-	.windows => WindowsImpl,
-	else => UnixImpl,
-};
-
 const UnixImpl = struct {
+	const ImplError = os.FStatError || os.MMapError;
+
 	fn init(allocator: Allocator, handle: Handle) Error!*FileMap {
 		failure.installFailureHandler();
 
@@ -111,7 +117,7 @@ const UnixImpl = struct {
 			.windows_map_handle = {},
 		};
 
-		try file_io.addMapping(file_map);
+		try failure.addMapping(file_map);
 
 		return file_map;
 	}
@@ -119,12 +125,37 @@ const UnixImpl = struct {
 	fn deinit(self: *FileMap) void {
 		os.munmap(self.slc);
 
-		file_io.removeMapping(self);
+		failure.removeMapping(self);
 		self.allocator.destroy(self);
+	}
+
+	fn write(self: *FileMap, src: []u8, offset: u64) Error!void {
+		const max_bytes_at_once = comptime @as(u64, switch (target_os) {
+			.windows => unreachable,
+			.linux => 0x7FFF_F000,
+			else => if (target_os.isDarwin()) 0x7FFF_FFFF else std.math.maxInt(isize),
+		});
+
+		const retries = (if (src.len >= max_bytes_at_once) src.len / max_bytes_at_once else 0) + 5;
+
+		var bytes_written = try os.pwrite(self.handle, src, offset);
+
+		if (bytes_written != src.len) {
+			for (0..retries) |_| {
+				bytes_written += try os.pwrite(
+					self.handle,
+					src[bytes_written..src.len], 
+					offset + bytes_written,
+				);
+				if (bytes_written == src.len) break;
+			} else return Error.UnknownWriteError;
+		}
 	}
 };
 
 const WindowsImpl = struct {
+	const ImplError = windows.GetFileSizeError || windows.CreateFileMappingError || windows.MapViewOfFileError;
+
 	fn init(allocator: Allocator, handle: Handle) Error!*FileMap {
 		failure.installFailureHandler();
 
@@ -158,7 +189,7 @@ const WindowsImpl = struct {
 			.windows_map_handle = map_handle,
 		};
 
-		try file_io.addMapping(file_map);
+		try failure.addMapping(file_map);
 
 		return file_map;
 	}
@@ -167,13 +198,19 @@ const WindowsImpl = struct {
 		windows.UnmapViewOfFile(self.slc) catch unreachable;
 		windows.CloseHandle(self.handle);
 
-		file_io.removeMapping(self);
+		failure.removeMapping(self);
 		self.allocator.destroy(self);
+	}
+
+	fn write(self: *FileMap, src: []u8, offset: u64) Error!void {
+		const bytes_written = try os.pwrite(self.handle, src, offset);
+		if (bytes_written != src.len) return Error.UnknownWriteError;
 	}
 };
 
+
 test "Map file" {
-	var tmp_dir = std.testing.tmpDir(.{});
+	var tmp_dir = testing.tmpDir(.{});
 	defer tmp_dir.cleanup();
 
 	const file = try tmp_dir.dir.createFile("tmp", .{ .read = true });
@@ -191,5 +228,5 @@ test "Map file" {
 	var buf: [str.len]u8 = undefined;
 	try map.read(&buf, 0);
 
-	log.debug("{s}", .{ buf });
+	try testing.expectEqualStrings(str, &buf);
 }

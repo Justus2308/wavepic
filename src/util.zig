@@ -4,8 +4,14 @@ const os = std.os;
 
 const Allocator = std.mem.Allocator;
 
+const testing = std.testing;
+
 const c = @import("c.zig");
 const convert = @import("convert.zig");
+
+const log = std.log.scoped(.util);
+const exec_log = std.log.scoped(.exec);
+
 
 pub inline fn getPID() os.pid_t {
 	return @as(os.pid_t, switch (builtin.os.tag) {
@@ -30,10 +36,14 @@ pub const ExecFlags = struct {
 	stdout: enum { ret, log, ignore } = .ret,
 	stderr: enum { fail, log, ignore } = .log,
 };
-/// argv[0] should be the name of the executable to execute.
+/// `argv[0]` should be the name of the executable to execute.
 /// On success, caller owns the returned slice if it is non-null.
 /// Eval order: stderr -> exit code -> stdout.
-pub fn exec(allocator: Allocator, argv: []const []const u8, flags: ExecFlags) ExecError!?[]u8 {
+pub fn exec(
+	allocator: Allocator,
+	argv: []const []const u8,
+	flags: ExecFlags
+) ExecError!?[]u8 {
 	const res = try std.process.Child.run(.{
 		.allocator = allocator,
 		.argv = argv,
@@ -48,7 +58,7 @@ pub fn exec(allocator: Allocator, argv: []const []const u8, flags: ExecFlags) Ex
 	
 	if (stderr.len != 0) switch (flags.stderr) {
 		.fail => return ExecError.Stderr,
-		.log => std.log.info("{s}", .{ stderr }),
+		.log => exec_log.info("{s}", .{ stderr }),
 		.ignore => {},
 	};
 
@@ -58,7 +68,7 @@ pub fn exec(allocator: Allocator, argv: []const []const u8, flags: ExecFlags) Ex
 
 	if (stdout.len != 0) switch (flags.stdout) {
 		.ret => return stdout,
-		.log => std.log.info("{s}", .{ stdout }),
+		.log => exec_log.info("{s}", .{ stdout }),
 		.ignore => {},
 	};
 
@@ -133,35 +143,52 @@ pub fn argvTokenize(allocator: Allocator, args: anytype) ![][]const u8 {
 
 
 test "getPID" {
-	const pid = getPID();
-	std.log.debug("PID: {d}\n", .{ pid });
+	const pipe = try os.pipe();
+
+	const child_pid = try os.fork();
+
+	if (child_pid == 0) {
+		const pid = getPID();
+		const written = try os.write(pipe[1], std.mem.asBytes(&pid));
+		try testing.expect(written == @sizeOf(os.pid_t));
+
+		os.exit(0);
+	}
+	const wait_res = os.waitpid(child_pid, 0);
+	try testing.expect(wait_res.status == 0);
+
+	var piped_pid: os.pid_t = undefined;
+	const read = try os.read(pipe[0], std.mem.asBytes(&piped_pid));
+	try testing.expect(read == @sizeOf(os.pid_t));
+
+	try testing.expect(child_pid == piped_pid);
 }
 
 test "exec 'echo' success" {
-	const allocator = std.testing.allocator;
+	const allocator = testing.allocator;
 
 	const argv = [_][]const u8 { "echo", "test", };
 
 	const out = try exec(allocator, &argv, .{ .stderr = .fail });
 	defer if (out) |o| allocator.free(o);
 
-	const out_chars = out orelse "";
-	std.log.debug("{s}", .{ out_chars });
+	try testing.expect(out != null);
+	try testing.expectEqualStrings("test\n", out.?);
 }
 
 test "exec 'echo' wrong exit code" {
-	const allocator = std.testing.allocator;
+	const allocator = testing.allocator;
 
 	const argv = [_][]const u8 { "echo", "test", };
 
 	const err_union = exec(allocator, &argv, .{ .expect = 1 });
 	defer if (err_union) |out| { if (out) |o| allocator.free(o); } else |_| {};
 
-	try std.testing.expectError(ExecError.WrongExitCode, err_union);
+	try testing.expectError(ExecError.WrongExitCode, err_union);
 }
 
 test "exec 'date abc' ignore stderr" {
-	const allocator = std.testing.allocator;
+	const allocator = testing.allocator;
 
 	const argv = [_][]const u8 { "date", "abc" };
 
@@ -173,5 +200,5 @@ test "exec 'date abc' ignore stderr" {
 test "litToArr" {
 	const exp = [_]u8{ 't', 'e', 's', 't' };
 	const ret = litToArr("test");
-	try std.testing.expectEqualStrings(&exp, &ret);
+	try testing.expectEqualStrings(&exp, &ret);
 }

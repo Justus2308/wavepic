@@ -2,10 +2,13 @@ const std = @import("std");
 const os = std.os;
 
 const assert = std.debug.assert;
-const log = std.log;
 
 const Allocator = std.mem.Allocator;
 const Handle = os.fd_t;
+
+const file_io = @import("../file_io/");
+
+const log = file_io.log;
 
 const c = @import("../c.zig");
 
@@ -136,8 +139,7 @@ pub fn mergeIntervals(self: *DeltaStack) Delta {
 		.end = max_end,
 	};
 }
-fn mergeSort(head: ?*List.Node) ?*List.Node
-{
+fn mergeSort(head: ?*List.Node) ?*List.Node {
 	if (head == null or head.?.next == null) return head;
 
 	// find middle of list
@@ -160,8 +162,7 @@ fn mergeSort(head: ?*List.Node) ?*List.Node
 	// merge sorted halfs
 	return merge(new_head, new_half);
 }
-fn merge(head: ?*List.Node, half: ?*List.Node) ?*List.Node
-{
+fn merge(head: ?*List.Node, half: ?*List.Node) ?*List.Node {
 	var head_node = head orelse return half;
 	var half_node = half orelse return head;
 
@@ -176,19 +177,18 @@ fn merge(head: ?*List.Node, half: ?*List.Node) ?*List.Node
 
 
 fn dump(self: *DeltaStack) void {
-	log.debug("DeltaManager dump:\n", .{});
+	log.info("DeltaManager dump:\n", .{});
 	
 	var node = self.list.first;
 	var i: usize = 0;
 	while (node != null) : (node = node.?.*.next) {
-		log.debug("{d}: {any}\n", .{ i, node.?.*.data });
+		log.info("{d}: {any}\n", .{ i, node.?.*.data });
 		i += 1;
 	}
 }
 
 
-test "DeltaStack insert elements"
-{
+test "DeltaStack insert elements" {
 	var deltas = DeltaStack.init(std.testing.allocator, .{});
 	defer deltas.deinit();
 
@@ -206,8 +206,7 @@ test "DeltaStack insert elements"
 	deltas.dump();
 }
 
-test "DeltaStack merge sort"
-{
+test "DeltaStack merge sort" {
 	var deltas = DeltaStack.init(std.testing.allocator, .{});
 	defer deltas.deinit();
 
@@ -228,8 +227,7 @@ test "DeltaStack merge sort"
 	deltas.dump();
 }
 
-test "DeltaStack merge intervals"
-{
+test "DeltaStack merge intervals" {
 	var deltas = DeltaStack.init(std.testing.allocator, .{ .merge_threshold = 8 });
 	defer deltas.deinit();
 
@@ -247,12 +245,11 @@ test "DeltaStack merge intervals"
 	const delta_interval = deltas.mergeIntervals();
 
 	deltas.dump();
-	log.debug("Total interval: {d} to {d}\n",
+	log.info("Total interval: {d} to {d}\n",
 		.{ delta_interval.start, delta_interval.end });
 }
 
-test "DeltaStack preheated reset"
-{
+test "DeltaStack preheated reset" {
 	var deltas = DeltaStack.init(std.testing.allocator, .{});
 	defer deltas.deinit();
 

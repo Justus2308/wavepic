@@ -2,18 +2,20 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const File = std.fs.File;
 
+const testing = std.testing;
+
+const log = std.log.scoped(.convert);
+
 const util = @import("util.zig");
 
 
-pub const Fmt = union(enum)
-{
+pub const Fmt = union(enum) {
 	audio: AudioFmt,
 	video: VideoFmt,
 	image: ImageFmt,
 };
 
-pub const AudioFmt = enum
-{
+pub const AudioFmt = enum {
 	// lossy compressed
 	aac,
 	m4a,
@@ -29,12 +31,10 @@ pub const AudioFmt = enum
 
 	unknown,
 };
-pub const VideoFmt = enum
-{
+pub const VideoFmt = enum {
 
 };
-pub const ImageFmt = enum
-{
+pub const ImageFmt = enum {
 
 };
 
@@ -42,8 +42,7 @@ pub const CLIError = util.ExecError || error {
 	NoFFmpeg,
 	NoFFprobe,
 };
-pub fn ffmpegCheck(allocator: Allocator) CLIError!void
-{
+pub fn ffmpegCheck(allocator: Allocator) CLIError!void {
 	@setCold(true);
 
 	var argv = [_][]const u8 { "which", "ffmpeg", };
@@ -61,14 +60,12 @@ pub fn ffmpegCheck(allocator: Allocator) CLIError!void
 }
 
 // TODO: include video and subtitle channels with stream=codec_type [audio|video|subtitle] (is in second place after index)
-pub const CodecType = enum
-{
+pub const CodecType = enum {
 	video,
 	audio,
 	subtitle,
 };
-pub const ChannelLayout = enum
-{
+pub const ChannelLayout = enum {
 	mono,
 	stereo,
 	unknown,
@@ -76,8 +73,7 @@ pub const ChannelLayout = enum
 	other,
 	no_audio,
 };
-pub const ChannelInfo = struct
-{
+pub const ChannelInfo = struct {
 	id: u32,
 	bit_rate: u32,
 	sample_rate: u32,
@@ -85,8 +81,7 @@ pub const ChannelInfo = struct
 	// codec_type: CodecType,
 };
 
-pub const FFprobeError = std.fmt.ParseIntError || std.mem.Allocator.Error || util.ExecError || error
-{
+pub const FFprobeError = std.fmt.ParseIntError || std.mem.Allocator.Error || util.ExecError || error {
 	FFprobeFailed,
 	NoChannels,
 	NoBitRate,
@@ -94,10 +89,8 @@ pub const FFprobeError = std.fmt.ParseIntError || std.mem.Allocator.Error || uti
 	NoLayout,
 	UnexpectedResponse,
 };
-pub fn ffprobeChannelOverview(allocator: Allocator, file_path: []const u8) FFprobeError![]ChannelInfo
-{
-	const argv: []const []const u8 =
-	&.{
+pub fn ffprobeChannelOverview(allocator: Allocator, file_path: []const u8) FFprobeError![]ChannelInfo {
+	const argv: []const []const u8 = &.{
 		"ffprobe",
 		"-i", file_path,
 		"-loglevel", "error",
@@ -116,12 +109,10 @@ pub fn ffprobeChannelOverview(allocator: Allocator, file_path: []const u8) FFpro
 	errdefer ch_info_list.deinit();
 
 	var lf_tknzr = std.mem.tokenizeScalar(u8, ch_info_chars, '\n');
-	while (lf_tknzr.next()) |line|
-	{
+	while (lf_tknzr.next()) |line| {
 		var comma_tknzr = std.mem.tokenizeScalar(u8, line, ',');
 
-		const ch_info = ChannelInfo
-		{
+		const ch_info = ChannelInfo {
 			.id = if (comma_tknzr.next()) |csv|
 				try std.fmt.parseInt(u32, csv, 10)
 				else return FFprobeError.NoChannels,
@@ -144,40 +135,32 @@ pub fn ffprobeChannelOverview(allocator: Allocator, file_path: []const u8) FFpro
 		try ch_info_list.append(ch_info);
 	}
 
-	return try ch_info_list.toOwnedSlice();
+	return ch_info_list.toOwnedSlice();
 }
 
 
-pub const AudioStream = union(enum)
-{
+pub const AudioStream = union(enum) {
 	slice: []u8,
 	file: *File,
 	none,
 
-	const Self = @This();
-
-	pub fn from(self: *Self, stream: anytype) self
-	{
-		comptime return switch (@TypeOf(stream))
-		{
-			[]u8 => self { .slice = stream },
-			*File => self { .file = *File },
-			else => self { .none = {} },
+	pub fn from(stream: anytype) AudioStream {
+		comptime return switch (@TypeOf(stream)) {
+			[]u8 => AudioStream { .slice = stream },
+			*File => AudioStream { .file = *File },
+			else => AudioStream { .none = {} },
 		};
 	}
 };
-pub const AudioSpecs = struct
-{
+pub const AudioSpecs = struct {
 	stream: AudioStream,
 	channel: ChannelInfo,
 	len: ?f64,
 
-	const Self = @This();
 	pub const Error = std.fmt.AllocPrintError || std.fmt.ParseFloatError || std.mem.Allocator.Error || util.ExecError;
 
 	/// no need to free anything, retval is pass by value
-	pub fn init(allocator: Allocator, file_path: []const u8, channel: ChannelInfo) Error!Self
-	{
+	pub fn init(allocator: Allocator, file_path: []const u8, channel: ChannelInfo) Error!AudioSpecs {
 		var arena = std.heap.ArenaAllocator.init(allocator);
 		defer arena.deinit();
 
@@ -186,8 +169,7 @@ pub const AudioSpecs = struct
 		const stream_n_lit = try std.fmt.allocPrint(arena_alloc, "{d}", .{ channel.id });
 		const stream_lit = try std.mem.concat(arena_alloc, u8, &.{ "a:", stream_n_lit });
 
-		const argv: []const []const u8 =
-		&.{
+		const argv: []const []const u8 = &.{
 			"ffprobe",
 			"-i", file_path,
 			"-loglevel", "error",
@@ -200,8 +182,7 @@ pub const AudioSpecs = struct
 		const len_chars = try util.exec(arena_alloc, argv, .{ .stderr = .fail });
 		const len: ?f64 = if (len_chars) |c| std.fmt.parseFloat(f64, c[0..c.len-1]) catch null else null;
 
-		return Self
-		{
+		return .{
 			.stream = AudioStream { .none = {} },
 			.channel = channel,
 			.len = len,
@@ -259,33 +240,22 @@ pub fn ffmpegAnyToPCM(allocator: Allocator, in_file_path: []const u8, cache_path
 
 test "ffmpeg check"
 {
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-	defer std.debug.assert(gpa.deinit() == .ok);
-
-	const allocator = gpa.allocator();
+	const allocator = testing.allocator;
 
 	try ffmpegCheck(allocator);
 }
 
-test "ffprobeChannelOverview of mp3"
-{
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-	defer std.debug.assert(gpa.deinit() == .ok);
-
-	const allocator = gpa.allocator();
+test "ffprobeChannelOverview of mp3" {
+	const allocator = testing.allocator;
 
 	const info = try ffprobeChannelOverview(allocator, "./test_in/mp3_test_in.mp3");
 	defer allocator.free(info);
 
-	std.log.debug("Channel overview: {any}\n", .{ info });
+	log.info("Channel overview: {any}\n", .{ info });
 }
 
-test "init AudioSpecs with channel"
-{
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-	defer std.debug.assert(gpa.deinit() == .ok);
-
-	const allocator = gpa.allocator();
+test "init AudioSpecs with channel" {
+	const allocator = testing.allocator;
 
 	const file_path = "./test_in/mp3_test_in.mp3";
 
@@ -293,7 +263,7 @@ test "init AudioSpecs with channel"
 	defer allocator.free(ch_infos);
 
 	const audio_specs = try AudioSpecs.init(allocator, file_path, ch_infos[0]);
-	std.log.debug("{any}", .{ audio_specs });
+	log.info("{any}", .{ audio_specs });
 }
 
 // test "mp3 to PCM"

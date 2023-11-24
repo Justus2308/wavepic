@@ -4,9 +4,12 @@ test {
 	testing.refAllDecls(@This());
 
 	_ = @import("convert.zig");
+	_ = @import("lz4.zig");
 	_ = @import("util.zig");
 
-	_ = @import("file_io.zig");
-	_ = @import("file_io/failure.zig");
-	_ = @import("file_io/FileMap.zig");
+	const file_io = @import("file_io.zig");
+	_ = file_io.cache;
+	// _ = file_io.DeltaStack;
+	_ = file_io.failure;
+	_ = file_io.FileMap;
 }

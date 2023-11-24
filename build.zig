@@ -92,6 +92,13 @@ pub fn build(b: *std.Build) void
 
 	const run_unit_tests = b.addRunArtifact(unit_tests);
 
+	// const failure_handler_check = std.Build.Step.Run.StdIo.Check {
+	// 	.expect_stderr_match = "[file_io] (warn): FileMap: handleFailure invoked.\n",
+	// };
+	// run_unit_tests.addCheck(failure_handler_check);
+	// run_unit_tests.stdio.check.append(failure_handler_check) catch unreachable;
+
+
 	// Similar to creating the run step earlier, this exposes a `test` step to
 	// the `zig build --help` menu, providing a way for the user to request
 	// running the unit tests.

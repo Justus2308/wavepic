@@ -7,16 +7,54 @@ const testing = std.testing;
 
 const assert = std.debug.assert;
 
+const Allocator = std.mem.Allocator;
 const Sigaction = os.Sigaction;
 
 const file_io = @import("../file_io.zig");
 const FileMap = file_io.FileMap;
 
+const log = file_io.log;
+
 const windows = @import("../windows.zig");
 
 
+/// This needs to be static otherwise the signal/exception handler can't access it
+var map_list = std.SinglyLinkedList(*FileMap) {};
+
+/// Do not call manually, use `FileMap.init()`.
+pub fn addMapping(map: *FileMap) Allocator.Error!void {
+	const node = try map.allocator.create(@TypeOf(map_list).Node);
+	node.*.data = map;
+
+	map_list.prepend(node);
+}
+
+/// Do not call manually, use `FileMap.deinit()`.
+pub fn removeMapping(map: *FileMap) void {
+	var node = map_list.first;
+	const rem = while (node != null) : (node = node.?.next) {
+		if (node.?.data == map) break node;
+	} else {
+		log.warn("Could not find mapping to remove for FileMap at 0x{x}.\n", .{ @intFromPtr(map) });
+		return;
+	};
+
+	map_list.remove(rem.?);
+	map.allocator.destroy(rem.?);
+}
+
+/// Returns `null` if `ptr` isn't in any registered mapping.
+fn getMapping(ptr: *anyopaque) ?*FileMap {
+	var node = map_list.first;
+	return while (node != null) : (node = node.?.next) {
+		if (node.?.data.contains(ptr)) break node.?.data;
+	} else null;
+}
+
+
+
 const Context = switch (target_os) {
-	.windows => *anyopaque,
+	.windows => ?*anyopaque,
 	else => union(enum) {
 		handler: Sigaction.handler_fn,
 		sigaction: Sigaction.sigaction_fn,
@@ -73,7 +111,7 @@ fn windowsExceptionInPageVEH(ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI
 
 	const error_addr: *anyopaque = ExceptionInfo.ExceptionAddress;
 
-	if (file_io.checkIfMapped(error_addr)) |map| {
+	if (getMapping(error_addr)) |map| {
 		map.handleFailure();
 		return EXCEPTION_CONTINUE_EXECUTION;
 	}
@@ -90,7 +128,7 @@ fn sigbusHandler(
 
 	const error_addr: *anyopaque = siginfo.addr;
 
-	if (file_io.checkIfMapped(error_addr)) |map| {
+	if (getMapping(error_addr)) |map| {
 		map.handleFailure();
 		return;
 	}
@@ -119,10 +157,12 @@ test "Handle SIGBUS from mapped memory" {
 		.windows_map_handle = {},
 	};
 
-	try file_io.addMapping(&file_map);
-	defer file_io.removeMapping(&file_map);
+	try addMapping(&file_map);
+	defer removeMapping(&file_map);
 
 	installFailureHandler();
+
+	log.info("test: expected warning: 'FileMap: handleFailure invoked.'\n", .{});
 
 	const pid = @import("../util.zig").getPID();
 	try os.kill(pid, os.SIG.BUS);
