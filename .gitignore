@@ -8,3 +8,6 @@ test_out/*
 
 # other
 \#*
+
+# temporary local zig version
+zig/*

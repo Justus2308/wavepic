@@ -5,6 +5,9 @@ const rlim_t = std.os.rlim_t;
 
 const assert = std.debug.assert;
 
+const sysaudio = @import("mach-sysaudio");
+
+
 const max_undo_steps_default = 64;
 var max_undo_steps = Atomic(u32).init(max_undo_steps_default);
 
@@ -21,4 +24,15 @@ pub fn setMaxMemory(limit: rlim_t) LimitError!void
 	try os.setrlimit(.DATA, new_limit);
 
 	max_memory.store(limit, .Unordered);
+}
+
+
+
+// AUDIO
+
+const playback_volume_default: f32 = 1.0;
+var playback_volume = Atomic(f32).init(playback_volume_default);
+
+pub fn setPlaybackVolume() !void {
+	
 }

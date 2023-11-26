@@ -27,7 +27,21 @@ pub inline fn alwaysSkipTest() !void {
 }
 
 
-pub const ExecError = std.process.Child.RunError || error {
+// compatability, remove later
+const minor_ver = builtin.zig_version.minor;
+const pre_ver = blk: {
+	const pre = builtin.zig_version.pre orelse break :blk 0;
+	var pre_split = std.mem.splitScalar(u8, pre, '.');
+	_ = pre_split.first();
+	const pre_int = std.fmt.parseUnsigned(u16, pre_split.next().?, 10) catch @compileError("what");
+	break :blk pre_int;
+};
+const oldChild = minor_ver < 12 or pre_ver < 1200;
+const Child = if (oldChild) std.ChildProcess else std.process.Child;
+const ChildRunError = if (oldChild) Child.ExecError else Child.RunError;
+const runChild = if (oldChild) Child.exec else Child.run;
+
+pub const ExecError = ChildRunError || error {
 	WrongExitCode,
 	Stderr,
 };
@@ -44,7 +58,7 @@ pub fn exec(
 	argv: []const []const u8,
 	flags: ExecFlags
 ) ExecError!?[]u8 {
-	const res = try std.process.Child.run(.{
+	const res = try runChild(.{
 		.allocator = allocator,
 		.argv = argv,
 	});

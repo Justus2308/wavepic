@@ -12,4 +12,7 @@ test {
 	// _ = file_io.DeltaStack;
 	_ = file_io.failure;
 	_ = file_io.FileMap;
+
+	_ = @import("filters.zig");
+	_ = @import("playback.zig");
 }

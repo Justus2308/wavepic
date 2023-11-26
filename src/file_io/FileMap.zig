@@ -1,3 +1,10 @@
+//! Manage mappings of files to memory.
+//! Every file mapping created with this
+//! structure will automatically be
+//! registered with `map_list` in
+//! `file_io/failure.zig` to properly
+//! handle bus errors.
+
 const builtin = @import("builtin");
 const target_os = builtin.os.tag;
 const std = @import("std");

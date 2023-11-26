@@ -17,11 +17,19 @@ pub fn build(b: *std.Build) void
 	const optimize = b.standardOptimizeOption(.{});
 
 
-	// dependencies
+	// zig dependencies
 
-	// const vkzig_dep = b.dependency("vulkan_zig", .{
-	// 	.registry = @as([]const u8, b.pathFromRoot("./vk.xml")),
-	// });
+	const vkzig_dep = b.dependency("vulkan_zig_generated", .{
+		// .target = target,
+		// .optimize = optimize,
+	});
+	const vkzig_mod = vkzig_dep.module("vulkan-zig-generated");
+
+	const mach_sysaudio_dep = b.dependency("mach_sysaudio", .{
+		.target = target,
+		.optimize = optimize,
+	});
+	const mach_sysaudio_mod = mach_sysaudio_dep.module("mach-sysaudio");
 
 
 	// main executable
@@ -41,13 +49,15 @@ pub fn build(b: *std.Build) void
 
 	// link C libs
 
-	dynLinkDeps(exe);
+	dynLinkCDeps(exe);
 	exe.linkLibC();
 
-	// Vulkan bindings
+	// add zig dependencies
 
-	// const vkzig_bindings = vkzig_dep.module("vulkan-zig");
-	// exe.addModule("vulkan-zig", vkzig_bindings);
+	exe.addModule("vulkan", vkzig_mod);
+
+	exe.addModule("mach-sysaudio", mach_sysaudio_mod);
+	@import("mach_sysaudio").link(mach_sysaudio_dep.builder, exe);
 
 
 	// This declares intent for the executable to be installed into the
@@ -86,8 +96,13 @@ pub fn build(b: *std.Build) void
 		.optimize = .Debug,
 	});
 
-	dynLinkDeps(unit_tests);
+	dynLinkCDeps(unit_tests);
 	unit_tests.linkLibC();
+
+	unit_tests.addModule("vulkan", vkzig_mod);
+	
+	unit_tests.addModule("mach-sysaudio", mach_sysaudio_mod);
+	@import("mach_sysaudio").link(mach_sysaudio_dep.builder, unit_tests);
 
 
 	const run_unit_tests = b.addRunArtifact(unit_tests);
@@ -106,7 +121,7 @@ pub fn build(b: *std.Build) void
 	test_step.dependOn(&run_unit_tests.step);
 }
 
-fn dynLinkDeps(exe: *std.Build.Step.Compile) void
+fn dynLinkCDeps(exe: *std.Build.Step.Compile) void
 {
 	const lib_path = std.os.getenv("DYLD_LIBRARY_PATH");
 	if (lib_path) |p|

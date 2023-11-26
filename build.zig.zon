@@ -3,19 +3,14 @@
 	.version = "0.1.0",
 
 	.dependencies = .{
-		// .ffmpeg = .{
-		// 	.url = "https://github.com/andrewrk/ffmpeg/archive/27a198a581d2c40753ab37a9635f373aad61904e.tar.gz",
-		// 	.hash = "1220c439bd3d820085113b97391d85453440468b395cab3729cd1ab3b262488db5b2",
-		// },
-		// not used rn, vk.xml is in repo
-		// .vk_xml = .{
-		// 	.url = "https://github.com/KhronosGroup/Vulkan-Headers/archive/374f9fd97520f6dd1b80745de09208d878ab4a52.tar.gz",
-		// 	.hash = "1220961d2dfc2fcf22b7f35afced1cb62fb13c3d2372e6211cc6396d33e4170dca76",
-		// },
-		// .vulkan_zig = .{
-		// 	.url = "https://github.com/Snektron/vulkan-zig/archive/1e4e90ffb14084357265d79b58e5f1b1c9396069.tar.gz",
-		// 	.hash = "1220d3e1254af9c8fd4c3f09bd9f50f51dc5eaa5506f845ed67bcd75e1e2961ce1ea",
-		// },
+		.vulkan_zig_generated = .{
+			.url = "https://pkg.machengine.org/vulkan-zig-generated/b2cb02b98b5359d714006ea07502ee02b7d9a353.tar.gz",
+			.hash = "122080249197eef2dc5290874ead429285741bcd509b57badc22b716f2630d78149e",
+		},
+		.mach_sysaudio = .{
+			.url = "https://pkg.machengine.org/mach-sysaudio/7736b88a31cfc9eb59cde3f97d76658eeaa81dd2.tar.gz",
+			.hash = "1220e298a52bb47dfb17ca01db57e0432da7968b38fcb92922145377560d76b6eada",
+		},
 	},
 
 	.paths = .{
