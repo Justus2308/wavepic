@@ -13,64 +13,137 @@ const sysaudio = @import("mach-sysaudio");
 const Context = sysaudio.Context;
 const Device = sysaudio.Device;
 const Player = sysaudio.Player;
+const WriteFn = sysaudio.WriteFn;
 
-pub const WriteFn = sysaudio.WriteFn;
+const file_io = @import("file_io.zig");
+const FileMap = file_io.FileMap;
 
 
+var ctx_allocator: Allocator = undefined;
 var ctx: ?Context = null;
-var players: std.SinglyLinkedList(sysaudio.Player) = .{}; // Nodes allocated by ctx
+pub var players: std.SinglyLinkedList(PlayerContext) = .{}; // Nodes allocated by ctx
 
 
 pub fn initPlayback(allocator: Allocator) Context.InitError!void {
-	ctx = try Context.init(null, allocator, .{
+	@setCold(true);
+
+	ctx_allocator = allocator;
+	errdefer ctx_allocator = undefined;
+
+	const context = try Context.init(null, ctx_allocator, .{
 		.deviceChangeFn = deviceChange,
 	});
+	ctx = context;
 }
 
 pub fn deinitPlayback() void {
+	@setCold(true);
+
 	if (ctx == null) @panic("Call initPlayback first!");
 
 	var node = players.first;
 	while (node != null) {
-		node.data.deinit();
+		node.?.data.player.deinit();
 		const next_node = node.?.next;
-		ctx.?.allocator.destroy(node);
+		players.remove(node.?);
+		ctx_allocator.destroy(node.?);
 		node = next_node;
 	}
 
 	ctx.?.deinit();
+	ctx = null;
 }
 
-fn deviceChange(_: *anyopaque) void {
+fn deviceChange(_: ?*anyopaque) void {
 	@panic("Device change during runtime not implemented yet!");
 }
 
 
-pub const AddPlayerError = Context.CreateStreamError || error { NoDevice };
+pub const PlayerSource = union(enum) {
+	map: *FileMap,
+	slc: []const u8,
+};
+
+const PlayerContext =  struct {
+	player: Player = undefined,
+
+	src: PlayerSource,
+	pos: usize = 0,
+};
+
+pub const PlayerOptions = struct {
+	format: sysaudio.Format = .f32,
+	sample_rate: u24 = sysaudio.default_sample_rate,
+};
+
+pub const InitPlayerError = Context.CreateStreamError || Context.RefreshError || error { NoDevice };
 /// Do not call `deinit` on the returned player manually, use `playback.deinitPlayer` for proper cleanup.
-pub fn initPlayer(writeFn: WriteFn, options: sysaudio.StreamOptions) AddPlayerError!*Player {
+pub fn initPlayer(source: PlayerSource, options: PlayerOptions) InitPlayerError!*Player {
 	if (ctx == null) @panic("Call initPlayback first!");
 
-	const device = ctx.?.defaultDevice(.playback) orelse return AddPlayerError.NoDevice;
-	const player = try ctx.?.createPlayer(device, writeFn, options);
-	errdefer player.deinit();
+	try ctx.?.refresh();
 
-	const node = try ctx.?.allocator.create(@TypeOf(players).Node);
-	node.*.data = player;
+	const node = try ctx_allocator.create(@TypeOf(players).Node);
+	errdefer ctx_allocator.destroy(node);
+	node.*.data = PlayerContext { .src = source };
+
+	const stream_options = sysaudio.StreamOptions {
+		.format = options.format,
+		.sample_rate = options.sample_rate,
+		.media_role = .music,
+		.user_data = &node.data,
+	};
+	const device = ctx.?.defaultDevice(.playback) orelse return InitPlayerError.NoDevice;
+
+	node.data.player = try ctx.?.createPlayer(device, basicWriteCallback, stream_options);
 
 	players.prepend(node);
 
-	return &node.*.data;
+	return &node.*.data.player;
 }
 
 pub fn deinitPlayer(player: *Player) void {
 	var node = players.first;
 	while (node != null) : (node = node.?.next) {
-		if (&node.?.data != player) continue;
+		if (&node.?.data.player != player) continue;
 
-		node.data.deinit();
-		players.remove(node);
-		ctx.?.allocator.destroy(node);
+		node.?.data.player.deinit();
+		players.remove(node.?);
+		ctx_allocator.destroy(node.?);
 		return;
-	} else log.warn("{s} player to deinit not found in 'players' list.\n", .{ @tagName(player.format) });
+	} else log.warn("Player to deinit not found in 'players' list.\n", .{});
+}
+
+
+pub fn basicWriteCallback(user_data: ?*anyopaque, output: []u8) void {
+	const player_ctx: *PlayerContext = @alignCast(@ptrCast(user_data orelse @panic("user data missing")));
+	assert(@TypeOf(player_ctx.*) == PlayerContext);
+
+	const format = player_ctx.player.format();
+	const frame_size = format.frameSize(@intCast(player_ctx.player.channels().len));
+
+	var i: usize = 0;
+	while (i < output.len) : (i += frame_size) {
+		// TODO
+	}
+}
+
+
+test "Player" {
+	const allocator = testing.allocator;
+
+	try initPlayback(allocator);
+	defer deinitPlayback();
+
+	const source = [_]u8{ 0, 1, 2, 3, 4, 5 };
+
+	const player = initPlayer(.{ .slc = &source }, .{}) catch |err| {
+		if (err == InitPlayerError.NoDevice) {
+			log.warn("Default playback device cannot be accessed from test environment.\n", .{});
+			return error.SkipZigTest;
+		} else return err;
+	};
+	defer deinitPlayer(player);
+
+	try player.start();
 }

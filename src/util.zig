@@ -13,6 +13,7 @@ const log = std.log.scoped(.util);
 const exec_log = std.log.scoped(.exec);
 
 
+/// Get PID of caller
 pub inline fn getPID() os.pid_t {
 	return @as(os.pid_t, switch (builtin.os.tag) {
 		.windows => os.windows.kernel32.GetCurrentProcessId(),

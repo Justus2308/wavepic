@@ -119,6 +119,36 @@ pub fn build(b: *std.Build) void
 	// running the unit tests.
 	const test_step = b.step("test", "Run unit tests");
 	test_step.dependOn(&run_unit_tests.step);
+
+
+	// Advanced tests
+	const playback_test = b.addExecutable(.{
+		.name = "playback_test",
+		.root_source_file = .{ .path = "src/playback_test.zig" },
+		.target = target,
+		.optimize = optimize,
+	});
+
+	playback_test.setVerboseCC(true);
+	playback_test.setVerboseLink(true);
+
+
+	// link C libs
+
+	dynLinkCDeps(playback_test);
+	playback_test.linkLibC();
+
+	// add zig dependencies
+
+	playback_test.addModule("vulkan", vkzig_mod);
+
+	playback_test.addModule("mach-sysaudio", mach_sysaudio_mod);
+	@import("mach_sysaudio").link(mach_sysaudio_dep.builder, playback_test);
+
+	const run_playback_test = b.addInstallArtifact(playback_test, .{});
+
+	const playback_test_step = b.step("playback_test", "Run playback test");
+	playback_test_step.dependOn(&run_playback_test.step);
 }
 
 fn dynLinkCDeps(exe: *std.Build.Step.Compile) void
