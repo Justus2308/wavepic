@@ -44,7 +44,7 @@ io_error: bool = false,
 windows_map_handle: if (target_os == .windows) Handle else void,
 
 
-pub const Error = Allocator.Error || os.PWriteError || error {
+pub const Error = Allocator.Error || os.PWriteError || std.io.Writer.Error || error {
 	IO,
 	UnknownWriteError,
 } || Impl.ImplError;
@@ -74,19 +74,23 @@ pub fn handleFailure(self: *FileMap) void {
 	log.warn("FileMap: handleFailure invoked.", .{});
 }
 
+
 /// Returns `Error.IO` if the read process triggers `SIGBUS`/`EXCEPTION_IN_PAGE_ERROR`
 /// or the `io_error` flag of this `FileMap` is already set.
 /// Whether `offset` is valid is only checked in Debug and ReleaseSafe modes.
-/// `dest` should be outside of the mapping to be read from as they may not overlap.
-pub fn read(self: *FileMap, dest: []u8, offset: u64) Error!void {
+/// The destination of `writer` should be outside of the mapping as they may not overlap.
+/// On success the number of bytes written by `writer` will be returned.
+pub fn readWrite(self: *FileMap, writer: std.io.Writer, offset: u64, size: u64) Error!void {
 	if (self.io_error) return Error.IO;
 
 	assert(offset < self.slc.len);
-	assert(offset + dest.len <= self.slc.len);
+	assert(offset + size <= self.slc.len);
 
-	@memcpy(dest, self.slc[offset..offset+dest.len]);
+	const written = try writer.write(self.slc[offset..offset + size]);
 
 	if (self.io_error) return Error.IO;
+
+	return written;
 }
 
 pub fn write(self: *FileMap, src: []u8, offset: u64) Error!void {
@@ -233,7 +237,9 @@ test "Map file" {
 	defer map.deinit();
 
 	var buf: [str.len]u8 = undefined;
-	try map.read(&buf, 0);
+	const fixed_buffer = std.io.fixedBufferStream(&buf);
+
+	try map.readWrite(fixed_buffer.writer(), 0, fixed_buffer.buffer.len);
 
 	try testing.expectEqualStrings(str, &buf);
 }

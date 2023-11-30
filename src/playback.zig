@@ -31,7 +31,7 @@ pub fn initPlayback(allocator: Allocator) Context.InitError!void {
 	errdefer ctx_allocator = undefined;
 
 	const context = try Context.init(null, ctx_allocator, .{
-		.deviceChangeFn = deviceChange,
+		// .deviceChangeFn = deviceChange, // Ignored by most backends?
 	});
 	ctx = context;
 }
@@ -39,7 +39,7 @@ pub fn initPlayback(allocator: Allocator) Context.InitError!void {
 pub fn deinitPlayback() void {
 	@setCold(true);
 
-	if (ctx == null) @panic("Call initPlayback first!");
+	assert(ctx != null);
 
 	var node = players.first;
 	while (node != null) {
@@ -55,7 +55,35 @@ pub fn deinitPlayback() void {
 }
 
 fn deviceChange(_: ?*anyopaque) void {
-	@panic("Device change during runtime not implemented yet!");
+	const device = while (true) {
+		ctx.?.refresh() catch {};
+		if(ctx.?.defaultDevice(.playback)) |d| break d;
+	};
+
+	var node = players.first;
+	while (node != null) : (node = node.?.next) {
+		const format = switch (node.?.data.player) {
+			inline else => |p| p.format,
+		};
+		const sample_rate = switch (node.?.data.player) {
+			inline else => |p| p.sample_rate,
+		};
+
+		node.?.data.player.deinit();
+
+		const stream_options = sysaudio.StreamOptions {
+			.format = format,
+			.sample_rate = sample_rate,
+			.media_role = .music,
+			.user_data = &node.data,
+		};
+
+		node.?.data.player = ctx.createPlayer(device, basicWriteCallback, stream_options) catch {
+			players.remove(node.?);
+			ctx_allocator.destroy(node.?);
+			log.warn("A player could not be reinitialized after a device change.", .{});
+		};
+	}
 }
 
 
@@ -79,7 +107,7 @@ pub const PlayerOptions = struct {
 pub const InitPlayerError = Context.CreateStreamError || Context.RefreshError || error { NoDevice };
 /// Do not call `deinit` on the returned player manually, use `playback.deinitPlayer` for proper cleanup.
 pub fn initPlayer(source: PlayerSource, options: PlayerOptions) InitPlayerError!*Player {
-	if (ctx == null) @panic("Call initPlayback first!");
+	assert(ctx != null);
 
 	try ctx.?.refresh();
 
@@ -124,7 +152,10 @@ pub fn basicWriteCallback(user_data: ?*anyopaque, output: []u8) void {
 
 	var i: usize = 0;
 	while (i < output.len) : (i += frame_size) {
-		// TODO
+		sysaudio.convertTo(
+			u8,
+
+		);
 	}
 }
 

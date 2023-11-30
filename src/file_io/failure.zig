@@ -168,7 +168,8 @@ test "Handle SIGBUS from mapped memory" {
 	try os.kill(pid, os.SIG.BUS);
 
 	var buf: [1]u8 = undefined;
+	const fixed_buffer = std.io.fixedBufferStream(&buf);
 
-	const err = file_map.read(&buf, 0);
+	const err = file_map.readWrite(fixed_buffer.writer(), 0, fixed_buffer.buffer.len);
 	try testing.expectError(FileMap.Error.IO, err);
 }
